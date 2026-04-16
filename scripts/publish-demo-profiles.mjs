@@ -69,12 +69,12 @@ function extractNsecHex(configText, filePath) {
 }
 
 function extractDockerIp(topologyText, nodeId) {
-  const match = topologyText.match(new RegExp(`\\n\\s+${nodeId}:([\\s\\S]*?)(?:\\n\\s+[a-z0-9_-]+:|$)`, "i"))
+  const match = topologyText.match(new RegExp(`(?:^|\\n)  ${nodeId}:\\n((?:    .*\\n?)*)`, "m"))
   if (!match) {
     return undefined
   }
 
-  const ipMatch = match[1].match(/docker_ip:\s*"([^"]+)"/)
+  const ipMatch = match[1].match(/^\s*docker_ip:\s*"([^"]+)"/m)
   return ipMatch?.[1]
 }
 
