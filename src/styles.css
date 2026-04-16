@@ -61,18 +61,44 @@ input {
   max-width: min(42vw, 320px);
 }
 
-.auth-corner__identity {
-  margin: 0;
-  padding: 0 10px;
-  min-height: 30px;
+.auth-corner__session {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.auth-corner__identity {
+  margin: 0;
+  padding: 0 11px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(34vw, 190px);
+  min-width: 0;
   border-radius: 999px;
   background: rgba(255, 252, 248, 0.74);
   border: 1px solid rgba(45, 26, 10, 0.08);
   color: rgba(37, 25, 13, 0.7);
   font-size: 0.82rem;
   backdrop-filter: blur(10px);
+  white-space: nowrap;
+}
+
+.auth-corner__status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #0e665c;
+  box-shadow: 0 0 0 3px rgba(14, 102, 92, 0.14);
+  flex: none;
+}
+
+.auth-corner__identity-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .auth-corner__button {
@@ -447,6 +473,10 @@ input {
     top: 14px;
     right: 16px;
     max-width: calc(100vw - 32px);
+  }
+
+  .auth-corner__identity {
+    max-width: min(46vw, 170px);
   }
 
   .search-input {
