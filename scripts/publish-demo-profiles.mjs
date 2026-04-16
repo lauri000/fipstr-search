@@ -13,6 +13,7 @@ const repoRoot = path.resolve(scriptDir, "..", "..")
 const defaultSourceDir = path.join(repoRoot, "fips", "testing", "static", "generated-configs", "web-10")
 const defaultTopologyPath = path.join(repoRoot, "fips", "testing", "static", "configs", "topologies", "web-10.yaml")
 const defaultCatalogPath = path.join(repoRoot, "fips", "testing", "static", "configs", "web-10-catalog.tsv")
+const defaultSeedsPath = path.join(repoRoot, "fips", "testing", "static", "configs", "web-10-announcer-seeds.json")
 
 function parseArgs(argv) {
   const options = {
@@ -20,6 +21,7 @@ function parseArgs(argv) {
     source: defaultSourceDir,
     topology: defaultTopologyPath,
     catalog: defaultCatalogPath,
+    seeds: defaultSeedsPath,
     dryRun: false,
   }
 
@@ -46,6 +48,12 @@ function parseArgs(argv) {
 
     if (value === "--catalog") {
       options.catalog = path.resolve(argv[index + 1])
+      index += 1
+      continue
+    }
+
+    if (value === "--seeds") {
+      options.seeds = path.resolve(argv[index + 1])
       index += 1
       continue
     }
@@ -171,16 +179,60 @@ async function loadProfiles(sourceDir, topologyPath, catalogPath) {
   return profiles
 }
 
+function parseSeedConfig(seedText) {
+  const parsed = JSON.parse(seedText)
+  return Array.isArray(parsed.announcements) ? parsed.announcements : []
+}
+
+async function loadSeededAnnouncements(seedPath, baseProfiles) {
+  const seedConfig = parseSeedConfig(await readFile(seedPath, "utf8"))
+  const baseByNodeId = new Map(baseProfiles.map((profile) => [profile.nodeId, profile]))
+  const createdAtBase = Math.floor(Date.now() / 1000) + baseProfiles.length + 30
+
+  return seedConfig.map((seed, index) => {
+    const target = baseByNodeId.get(seed.targetNodeId)
+
+    if (!target) {
+      throw new Error(`Missing target node ${seed.targetNodeId} for seed ${seed.id}`)
+    }
+
+    const secretKey = utils.hexToBytes(seed.secretKeyHex)
+    const pubkey = getPublicKey(secretKey)
+    const npub = nip19.npubEncode(pubkey)
+    const event = finalizeEvent(
+      {
+        kind: DISCOVERY_KIND,
+        created_at: createdAtBase + index,
+        tags: target.event.tags.map((tag) => [...tag]),
+        content: target.event.content,
+      },
+      secretKey,
+    )
+
+    return {
+      nodeId: seed.id,
+      alias: `${seed.id} -> ${target.alias}`,
+      serviceName: target.serviceName,
+      npub,
+      host: `${target.npub}.fips`,
+      url: target.url,
+      event,
+    }
+  })
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2))
   const profiles = await loadProfiles(options.source, options.topology, options.catalog)
+  const seededAnnouncements = await loadSeededAnnouncements(options.seeds, profiles)
+  const allAnnouncements = [...profiles, ...seededAnnouncements]
 
   if (profiles.length === 0) {
     throw new Error(`No node configs found in ${options.source}`)
   }
 
   if (options.dryRun) {
-    for (const profile of profiles) {
+    for (const profile of allAnnouncements) {
       console.log(`${profile.nodeId}: ${profile.alias} (${profile.serviceName}) -> ${profile.url}`)
     }
     return
@@ -189,7 +241,7 @@ async function main() {
   const relay = await Relay.connect(options.relay)
 
   try {
-    for (const profile of profiles) {
+    for (const profile of allAnnouncements) {
       await relay.publish(profile.event)
       console.log(`published ${profile.nodeId}: ${profile.alias} (${profile.serviceName}) -> ${profile.npub}`)
     }

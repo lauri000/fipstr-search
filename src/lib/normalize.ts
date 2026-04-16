@@ -2,11 +2,10 @@ import {nip19, type Event} from "nostr-tools"
 
 import {
   DISCOVERY_KIND,
-  type AuthorState,
+  type AnnouncementRecord,
+  type DirectoryNodeRecord,
   type DiscoveryService,
   type DiscoveryTransport,
-  type DirectoryProfileRecord,
-  type EventMap,
   type SearchDocument,
 } from "./types"
 
@@ -67,7 +66,7 @@ function formatTransports(transports: DiscoveryTransport[]) {
 }
 
 function buildSummary(
-  npub: string,
+  targetNpub: string,
   services: DiscoveryService[],
   transports: DiscoveryTransport[],
 ) {
@@ -80,143 +79,162 @@ function buildSummary(
     return details.join(" · ")
   }
 
-  return `Reachable at http://${npub}.fips/`
+  return `Reachable at http://${targetNpub}.fips/`
 }
 
-export function normalizeDiscoveryEvent(event: Event): DirectoryProfileRecord | null {
+export function announcementKey(authorPubkey: string, targetNpub: string) {
+  return `${authorPubkey}:${targetNpub}`
+}
+
+export function isRecordNewer(
+  candidate: Pick<AnnouncementRecord, "createdAt" | "eventId">,
+  current: Pick<AnnouncementRecord, "createdAt" | "eventId">,
+) {
+  if (candidate.createdAt !== current.createdAt) {
+    return candidate.createdAt > current.createdAt
+  }
+
+  return candidate.eventId.localeCompare(current.eventId) < 0
+}
+
+export function normalizeAnnouncementEvent(event: Event): AnnouncementRecord | null {
   if (event.kind !== DISCOVERY_KIND) {
     return null
   }
 
-  const npub = parseTaggedNpub(event.tags)
+  const targetNpub = parseTaggedNpub(event.tags)
 
-  if (!npub) {
+  if (!targetNpub) {
     return null
   }
 
+  const authorNpub = nip19.npubEncode(event.pubkey)
   const discriminator = pickTagValue(event.tags, "d")
   const alias = pickTagValue(event.tags, "alias")
   const services = parseServices(event.tags)
   const transports = parseTransports(event.tags)
-  const summary = buildSummary(npub, services, transports)
+  const summary = buildSummary(targetNpub, services, transports)
 
   return {
-    pubkey: event.pubkey,
-    npub,
+    id: announcementKey(event.pubkey, targetNpub),
+    authorPubkey: event.pubkey,
+    authorNpub,
+    targetNpub,
     eventId: event.id,
     createdAt: event.created_at,
     discriminator,
     alias,
+    content: event.content,
     summary,
     transports,
     services,
     tags: event.tags.map((tag) => [...tag]),
-    searchText: [
-      alias,
-      discriminator,
-      npub,
-      summary,
-      ...services.flatMap((service) => [service.name, service.port]),
-      ...transports.flatMap((transport) => [transport.protocol, transport.addr, transport.port]),
-    ]
-      .filter(Boolean)
-      .join("\n"),
-    url: `http://${npub}.fips/`,
+    url: `http://${targetNpub}.fips/`,
   }
 }
 
-export function getProfileTitle(profile: DirectoryProfileRecord) {
-  return profile.alias ?? profile.npub
-}
-
-export function toSearchDocument(profile: DirectoryProfileRecord): SearchDocument {
-  return {
-    id: profile.pubkey,
-    title: getProfileTitle(profile),
-    alias: profile.alias ?? "",
-    summary: profile.summary,
-    services: formatServices(profile.services),
-    transports: formatTransports(profile.transports),
-    npub: profile.npub,
-    host: `${profile.npub}.fips`,
-    url: profile.url,
-  }
-}
-
-function isEventNewerThanState(
-  event: Pick<Event, "created_at" | "id">,
-  state: Pick<AuthorState, "createdAt" | "eventId">,
-) {
-  if (event.created_at !== state.createdAt) {
-    return event.created_at > state.createdAt
-  }
-
-  return event.id.localeCompare(state.eventId) < 0
-}
-
-export function isEventNewer(candidate: Event, current: Event) {
-  if (candidate.created_at !== current.created_at) {
-    return candidate.created_at > current.created_at
-  }
-
-  return candidate.id.localeCompare(current.id) < 0
-}
-
-export function takeLatestEvents(events: Event[]) {
-  const latestByAuthor: EventMap = new Map()
-
-  for (const event of events) {
-    const current = latestByAuthor.get(event.pubkey)
-
-    if (!current || isEventNewer(event, current)) {
-      latestByAuthor.set(event.pubkey, event)
-    }
-  }
-
-  return latestByAuthor
-}
-
-export function applyProfileEvent(
-  profiles: Map<string, DirectoryProfileRecord>,
-  authorStates: Map<string, AuthorState>,
+export function applyAnnouncementEvent(
+  announcements: Map<string, AnnouncementRecord>,
   event: Event,
 ) {
-  const currentState = authorStates.get(event.pubkey)
+  const nextRecord = normalizeAnnouncementEvent(event)
 
-  if (currentState && !isEventNewerThanState(event, currentState)) {
+  if (!nextRecord) {
     return false
   }
 
-  const currentlyActive = profiles.has(event.pubkey)
-  const nextProfile = normalizeDiscoveryEvent(event)
+  const previous = announcements.get(nextRecord.id)
 
-  if (!nextProfile) {
-    authorStates.set(event.pubkey, {
-      eventId: event.id,
-      createdAt: event.created_at,
-      active: false,
-    })
+  if (previous && !isRecordNewer(nextRecord, previous)) {
+    return false
+  }
 
-    if (!currentlyActive) {
-      return false
+  announcements.set(nextRecord.id, nextRecord)
+  return true
+}
+
+export function takeLatestAnnouncements(events: Event[]) {
+  const latest = new Map<string, AnnouncementRecord>()
+
+  for (const event of events) {
+    applyAnnouncementEvent(latest, event)
+  }
+
+  return latest
+}
+
+function chooseCanonicalAnnouncement(announcements: AnnouncementRecord[]) {
+  const selfAnnouncements = announcements.filter((announcement) => announcement.authorNpub === announcement.targetNpub)
+  const candidates = selfAnnouncements.length > 0 ? selfAnnouncements : announcements
+
+  return candidates.reduce((current, candidate) => {
+    if (!current) {
+      return candidate
     }
 
-    profiles.delete(event.pubkey)
-    return true
-  }
-
-  authorStates.set(event.pubkey, {
-    eventId: event.id,
-    createdAt: event.created_at,
-    active: true,
+    return isRecordNewer(candidate, current) ? candidate : current
   })
+}
 
-  const previous = profiles.get(event.pubkey)
+export function buildDirectoryNodes(announcements: Iterable<AnnouncementRecord>) {
+  const byTarget = new Map<string, AnnouncementRecord[]>()
 
-  if (previous?.eventId === nextProfile.eventId) {
-    return false
+  for (const announcement of announcements) {
+    const list = byTarget.get(announcement.targetNpub)
+
+    if (list) {
+      list.push(announcement)
+    } else {
+      byTarget.set(announcement.targetNpub, [announcement])
+    }
   }
 
-  profiles.set(event.pubkey, nextProfile)
-  return true
+  const nodes = new Map<string, DirectoryNodeRecord>()
+
+  for (const [targetNpub, records] of byTarget.entries()) {
+    const canonical = chooseCanonicalAnnouncement(records)
+
+    if (!canonical) {
+      continue
+    }
+
+    const announcerPubkeys = Array.from(new Set(records.map((record) => record.authorPubkey))).sort()
+
+    nodes.set(targetNpub, {
+      npub: targetNpub,
+      alias: canonical.alias,
+      summary: canonical.summary,
+      transports: canonical.transports.map((transport) => ({...transport})),
+      services: canonical.services.map((service) => ({...service})),
+      tags: canonical.tags.map((tag) => [...tag]),
+      content: canonical.content,
+      url: canonical.url,
+      announcementCount: announcerPubkeys.length,
+      announcerPubkeys,
+      canonicalAnnouncementId: canonical.id,
+      canonicalEventId: canonical.eventId,
+      canonicalAuthorPubkey: canonical.authorPubkey,
+    })
+  }
+
+  return nodes
+}
+
+export function getNodeTitle(node: DirectoryNodeRecord) {
+  return node.alias ?? node.npub
+}
+
+export function toSearchDocument(node: DirectoryNodeRecord): SearchDocument {
+  return {
+    id: node.npub,
+    title: getNodeTitle(node),
+    alias: node.alias ?? "",
+    summary: node.summary,
+    services: formatServices(node.services),
+    transports: formatTransports(node.transports),
+    npub: node.npub,
+    host: `${node.npub}.fips`,
+    url: node.url,
+    announcementCount: node.announcementCount,
+  }
 }

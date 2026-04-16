@@ -1,16 +1,17 @@
-import {SimplePool, type Event, type Filter} from "nostr-tools"
+import {SimplePool, verifyEvent, type Event, type Filter} from "nostr-tools"
 
 import {loadDirectoryState, saveDirectoryState} from "./db"
 import {DEFAULT_RELAYS} from "./defaultRelays"
-import {applyProfileEvent, isEventNewer, takeLatestEvents} from "./normalize"
+import {applyAnnouncementEvent, buildDirectoryNodes, takeLatestAnnouncements} from "./normalize"
 import {buildSearchIndex, loadSearchIndex, searchDirectory, serializeSearchIndex} from "./search"
 import {
   DISCOVERY_KIND,
-  type AuthorState,
-  type DirectoryProfileRecord,
+  type AnnouncementRecord,
+  type DirectoryNodeRecord,
   type DirectoryRuntime,
   type DirectorySearchResult,
   type DirectorySnapshot,
+  type PublishSigner,
   type SyncState,
 } from "./types"
 
@@ -21,12 +22,14 @@ type SubCloser = {
   close: (reason?: string) => void
 }
 
+type RelayPool = Pick<SimplePool, "destroy" | "publish" | "querySync" | "subscribe">
+
 const DISCOVERY_FILTER: Filter = {
   kinds: [DISCOVERY_KIND],
 }
 
-function formatProfileCount(count: number) {
-  return `${count} node announcement${count === 1 ? "" : "s"}`
+function formatNodeCount(count: number) {
+  return `${count} node${count === 1 ? "" : "s"}`
 }
 
 function errorMessage(error: unknown) {
@@ -37,13 +40,24 @@ function errorMessage(error: unknown) {
   return "Unknown relay error"
 }
 
+function cloneTags(tags: string[][]) {
+  return tags.map((tag) => [...tag])
+}
+
+function createPool() {
+  return new SimplePool({
+    enablePing: true,
+    enableReconnect: true,
+  })
+}
+
 export class DirectoryService implements DirectoryRuntime {
   private readonly relays: string[]
-  private readonly pool: SimplePool
+  private readonly pool: RelayPool
   private readonly listeners = new Set<() => void>()
 
-  private profiles = new Map<string, DirectoryProfileRecord>()
-  private authorStates = new Map<string, AuthorState>()
+  private announcements = new Map<string, AnnouncementRecord>()
+  private nodes = new Map<string, DirectoryNodeRecord>()
   private searchIndex = buildSearchIndex([])
 
   private discoverySubscription?: SubCloser
@@ -53,18 +67,15 @@ export class DirectoryService implements DirectoryRuntime {
 
   private state: DirectorySnapshot
 
-  constructor(relays = DEFAULT_RELAYS) {
+  constructor(relays = DEFAULT_RELAYS, pool: RelayPool = createPool()) {
     this.relays = relays
-    this.pool = new SimplePool({
-      enablePing: true,
-      enableReconnect: true,
-    })
+    this.pool = pool
 
     this.state = {
       status: "Loading cached directory...",
       hydrated: false,
       syncing: true,
-      profilesCount: 0,
+      nodesCount: 0,
       relayCount: this.relays.length,
     }
   }
@@ -78,11 +89,11 @@ export class DirectoryService implements DirectoryRuntime {
 
   getSnapshot = () => this.state
 
-  search = (query: string): DirectorySearchResult[] => {
-    return searchDirectory(this.searchIndex, query).map(({score, terms, queryTerms, match, ...storedFields}) => ({
-      ...storedFields,
-      score,
-    })) as DirectorySearchResult[]
+  search = (query: string, viewerPubkey?: string): DirectorySearchResult[] => {
+    return searchDirectory(this.searchIndex, query).map((result) => ({
+      ...result,
+      announcedByViewer: viewerPubkey ? this.nodes.get(result.npub)?.announcerPubkeys.includes(viewerPubkey) ?? false : false,
+    }))
   }
 
   start = () => {
@@ -94,6 +105,43 @@ export class DirectoryService implements DirectoryRuntime {
     void this.bootstrap()
 
     return this.stop
+  }
+
+  reannounce = async (targetNpub: string, signer: PublishSigner) => {
+    const node = this.nodes.get(targetNpub)
+
+    if (!node) {
+      throw new Error("This node is not currently available for re-announcement.")
+    }
+
+    const signedEvent = await signer.signEvent({
+      kind: DISCOVERY_KIND,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: cloneTags(node.tags),
+      content: node.content,
+    })
+
+    if (signedEvent.kind !== DISCOVERY_KIND) {
+      throw new Error("Signer returned the wrong event kind.")
+    }
+
+    if (!verifyEvent(signedEvent)) {
+      throw new Error("Signer returned an invalid event signature.")
+    }
+
+    if (signedEvent.pubkey !== signer.pubkey) {
+      throw new Error("Signer returned a mismatched public key.")
+    }
+
+    const publishResults = await Promise.allSettled(this.pool.publish(this.relays, signedEvent, {maxWait: SYNC_MAX_WAIT_MS}))
+    const successCount = publishResults.filter((result) => result.status === "fulfilled").length
+
+    if (successCount === 0) {
+      const firstFailure = publishResults.find((result) => result.status === "rejected")
+      throw new Error(firstFailure?.status === "rejected" ? errorMessage(firstFailure.reason) : "Failed to publish announcement.")
+    }
+
+    await this.handleIncomingEvent(signedEvent)
   }
 
   private stop = () => {
@@ -125,11 +173,11 @@ export class DirectoryService implements DirectoryRuntime {
   }
 
   private getLiveStatusMessage() {
-    if (this.profiles.size === 0) {
+    if (this.nodes.size === 0) {
       return `Watching ${this.relays.length} relays for discovery announcements`
     }
 
-    return `Watching ${this.relays.length} relays, indexed ${formatProfileCount(this.profiles.size)}`
+    return `Watching ${this.relays.length} relays, indexed ${formatNodeCount(this.nodes.size)}`
   }
 
   private async bootstrap() {
@@ -146,8 +194,8 @@ export class DirectoryService implements DirectoryRuntime {
         syncing: false,
         error: errorMessage(error),
         status:
-          this.profiles.size > 0
-            ? `Using ${formatProfileCount(this.profiles.size)} from cache while relay sync failed`
+          this.nodes.size > 0
+            ? `Using ${formatNodeCount(this.nodes.size)} from cache while relay sync failed`
             : "Relay sync failed. Waiting for live updates",
       })
     }
@@ -164,41 +212,29 @@ export class DirectoryService implements DirectoryRuntime {
   }
 
   private async hydrateFromCache() {
-    const {profiles, searchIndex, syncState} = await loadDirectoryState()
+    const {announcements, nodes, searchIndex, syncState} = await loadDirectoryState()
 
-    this.profiles = new Map(profiles.map((profile) => [profile.pubkey, profile]))
-    this.authorStates = new Map(Object.entries(syncState?.authorStates ?? {}))
+    this.announcements = new Map(announcements.map((announcement) => [announcement.id, announcement]))
+    this.nodes = new Map(nodes.map((node) => [node.npub, node]))
 
-    for (const profile of profiles) {
-      const current = this.authorStates.get(profile.pubkey)
-
-      if (
-        !current ||
-        profile.createdAt > current.createdAt ||
-        (profile.createdAt === current.createdAt && profile.eventId.localeCompare(current.eventId) < 0)
-      ) {
-        this.authorStates.set(profile.pubkey, {
-          eventId: profile.eventId,
-          createdAt: profile.createdAt,
-          active: true,
-        })
-      }
+    if (this.nodes.size === 0 && this.announcements.size > 0) {
+      this.rebuildNodesAndIndex()
+    } else {
+      const cachedIndex = loadSearchIndex(searchIndex)
+      this.searchIndex =
+        searchIndex && searchIndex.docCount === this.nodes.size
+          ? cachedIndex
+          : buildSearchIndex(this.nodes.values())
     }
-
-    const cachedIndex = loadSearchIndex(searchIndex)
-    this.searchIndex =
-      searchIndex && searchIndex.docCount === profiles.length
-        ? cachedIndex
-        : buildSearchIndex(this.profiles.values())
 
     this.setState({
       hydrated: true,
       syncing: true,
-      profilesCount: profiles.length,
+      nodesCount: this.nodes.size,
       lastSyncAt: syncState?.lastSyncAt,
       error: undefined,
       status:
-        profiles.length > 0 ? `Loaded ${formatProfileCount(profiles.length)} from cache` : "No cached node announcements yet",
+        this.nodes.size > 0 ? `Loaded ${formatNodeCount(this.nodes.size)} from cache` : "No cached node announcements yet",
     })
   }
 
@@ -210,27 +246,18 @@ export class DirectoryService implements DirectoryRuntime {
     })
 
     const events = await this.queryEvents(DISCOVERY_FILTER)
-    const latestByAuthor = takeLatestEvents(events)
-    const nextProfiles = new Map<string, DirectoryProfileRecord>()
-    const nextAuthorStates = new Map<string, AuthorState>()
 
-    for (const event of latestByAuthor.values()) {
-      applyProfileEvent(nextProfiles, nextAuthorStates, event)
-    }
+    this.announcements = takeLatestAnnouncements(events)
+    this.rebuildNodesAndIndex()
 
-    this.profiles = nextProfiles
-    this.authorStates = nextAuthorStates
-
-    this.rebuildSearchIndex()
     const syncedAt = Date.now()
     this.schedulePersist(syncedAt)
 
     this.setState({
       syncing: false,
-      profilesCount: this.profiles.size,
+      nodesCount: this.nodes.size,
       lastSyncAt: syncedAt,
-      status:
-        this.profiles.size > 0 ? `Indexed ${formatProfileCount(this.profiles.size)}` : "No discovery announcements found yet",
+      status: this.nodes.size > 0 ? `Indexed ${formatNodeCount(this.nodes.size)}` : "No discovery announcements found yet",
     })
   }
 
@@ -243,46 +270,39 @@ export class DirectoryService implements DirectoryRuntime {
     this.discoverySubscription = this.pool.subscribe(this.relays, DISCOVERY_FILTER, {
       label: "fips-discovery",
       onevent: (event) => {
-        void this.handleLiveEvent(event)
+        void this.handleIncomingEvent(event)
       },
     })
   }
 
-  private async handleLiveEvent(event: Event) {
+  private async handleIncomingEvent(event: Event) {
     if (!this.started || event.kind !== DISCOVERY_KIND) {
       return
     }
 
-    const wasActive = this.profiles.has(event.pubkey)
-    const nextProfiles = new Map(this.profiles)
-    const nextAuthorStates = new Map(this.authorStates)
-    const changed = applyProfileEvent(nextProfiles, nextAuthorStates, event)
-    const isActive = nextProfiles.has(event.pubkey)
+    const nextAnnouncements = new Map(this.announcements)
+    const changed = applyAnnouncementEvent(nextAnnouncements, event)
 
-    if (!changed && wasActive === isActive) {
-      this.authorStates = nextAuthorStates
+    if (!changed) {
       return
     }
 
-    this.profiles = nextProfiles
-    this.authorStates = nextAuthorStates
-
-    if (changed) {
-      this.rebuildSearchIndex()
-    }
+    this.announcements = nextAnnouncements
+    this.rebuildNodesAndIndex()
 
     const syncedAt = Date.now()
     this.schedulePersist(syncedAt)
     this.setState({
-      profilesCount: this.profiles.size,
+      nodesCount: this.nodes.size,
       lastSyncAt: syncedAt,
       error: undefined,
       status: this.getLiveStatusMessage(),
     })
   }
 
-  private rebuildSearchIndex() {
-    this.searchIndex = buildSearchIndex(this.profiles.values())
+  private rebuildNodesAndIndex() {
+    this.nodes = buildDirectoryNodes(this.announcements.values())
+    this.searchIndex = buildSearchIndex(this.nodes.values())
   }
 
   private schedulePersist(lastSyncAt: number) {
@@ -303,12 +323,12 @@ export class DirectoryService implements DirectoryRuntime {
   private async persistCurrentState(lastSyncAt: number) {
     const syncState: SyncState = {
       lastSyncAt,
-      authorStates: Object.fromEntries(this.authorStates.entries()),
     }
 
     await saveDirectoryState(
-      Array.from(this.profiles.values()),
-      serializeSearchIndex(this.searchIndex, this.profiles.size),
+      Array.from(this.announcements.values()),
+      Array.from(this.nodes.values()),
+      serializeSearchIndex(this.searchIndex, this.nodes.size),
       syncState,
     )
   }

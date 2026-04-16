@@ -1,11 +1,11 @@
 import MiniSearch, {type AsPlainObject, type Options} from "minisearch"
 
-import {SEARCH_INDEX_VERSION, type DirectoryProfileRecord, type SearchIndexState, type SearchDocument} from "./types"
+import {SEARCH_INDEX_VERSION, type DirectoryNodeRecord, type SearchIndexState, type SearchDocument} from "./types"
 import {toSearchDocument} from "./normalize"
 
 export const SEARCH_OPTIONS = {
   fields: ["title", "alias", "summary", "services", "transports", "npub"],
-  storeFields: ["title", "alias", "summary", "services", "transports", "npub", "host", "url"],
+  storeFields: ["title", "alias", "summary", "services", "transports", "npub", "host", "url", "announcementCount"],
   searchOptions: {
     boost: {
       title: 4,
@@ -18,6 +18,10 @@ export const SEARCH_OPTIONS = {
   },
 } satisfies Options<SearchDocument>
 
+type StoredSearchResult = SearchDocument & {
+  score: number
+}
+
 export function createSearchIndex(documents: SearchDocument[] = []) {
   const index = new MiniSearch<SearchDocument>(SEARCH_OPTIONS)
 
@@ -28,8 +32,8 @@ export function createSearchIndex(documents: SearchDocument[] = []) {
   return index
 }
 
-export function buildSearchIndex(profiles: Iterable<DirectoryProfileRecord>) {
-  return createSearchIndex(Array.from(profiles, toSearchDocument))
+export function buildSearchIndex(nodes: Iterable<DirectoryNodeRecord>) {
+  return createSearchIndex(Array.from(nodes, toSearchDocument))
 }
 
 export function serializeSearchIndex(index: MiniSearch<SearchDocument>, docCount: number): SearchIndexState {
@@ -53,6 +57,24 @@ export function loadSearchIndex(savedState?: SearchIndexState) {
   }
 }
 
+function sortResults(a: StoredSearchResult, b: StoredSearchResult) {
+  if (a.announcementCount !== b.announcementCount) {
+    return b.announcementCount - a.announcementCount
+  }
+
+  if (a.score !== b.score) {
+    return b.score - a.score
+  }
+
+  const titleCompare = a.title.localeCompare(b.title)
+
+  if (titleCompare !== 0) {
+    return titleCompare
+  }
+
+  return a.npub.localeCompare(b.npub)
+}
+
 export function searchDirectory(index: MiniSearch<SearchDocument>, query: string) {
   const trimmed = query.trim()
 
@@ -60,7 +82,7 @@ export function searchDirectory(index: MiniSearch<SearchDocument>, query: string
     return []
   }
 
-  return index.search(trimmed, {
+  const rawResults = index.search(trimmed, {
     prefix: trimmed.length >= 2,
     fuzzy: trimmed.length > 3 ? 0.2 : false,
     boost: {
@@ -71,4 +93,6 @@ export function searchDirectory(index: MiniSearch<SearchDocument>, query: string
       transports: 2,
     },
   })
+
+  return (rawResults as unknown as StoredSearchResult[]).sort(sortResults)
 }

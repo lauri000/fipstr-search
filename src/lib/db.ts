@@ -1,7 +1,8 @@
 import Dexie, {type Table} from "dexie"
 
 import type {
-  DirectoryProfileRecord,
+  AnnouncementRecord,
+  DirectoryNodeRecord,
   MetaRecord,
   SearchIndexState,
   SyncState,
@@ -11,7 +12,8 @@ export const SEARCH_INDEX_META_KEY = "search-index"
 export const SYNC_STATE_META_KEY = "sync-state"
 
 class DirectoryDatabase extends Dexie {
-  profiles!: Table<DirectoryProfileRecord, string>
+  announcements!: Table<AnnouncementRecord, string>
+  nodes!: Table<DirectoryNodeRecord, string>
   meta!: Table<MetaRecord, string>
 
   constructor() {
@@ -21,37 +23,51 @@ class DirectoryDatabase extends Dexie {
       profiles: "&pubkey, createdAt, npub",
       meta: "&key",
     })
+
+    this.version(2).stores({
+      announcements: "&id, targetNpub, authorPubkey, createdAt",
+      nodes: "&npub, announcementCount, alias",
+      meta: "&key",
+    })
   }
 }
 
 export const db = new DirectoryDatabase()
 
 export async function loadDirectoryState() {
-  const [profiles, searchIndexRecord, syncStateRecord] = await Promise.all([
-    db.profiles.toArray(),
+  const [announcements, nodes, searchIndexRecord, syncStateRecord] = await Promise.all([
+    db.announcements.toArray(),
+    db.nodes.toArray(),
     db.meta.get(SEARCH_INDEX_META_KEY),
     db.meta.get(SYNC_STATE_META_KEY),
   ])
 
   return {
-    profiles,
+    announcements,
+    nodes,
     searchIndex: searchIndexRecord?.value as SearchIndexState | undefined,
     syncState: syncStateRecord?.value as SyncState | undefined,
   }
 }
 
 export async function saveDirectoryState(
-  profiles: DirectoryProfileRecord[],
+  announcements: AnnouncementRecord[],
+  nodes: DirectoryNodeRecord[],
   searchIndex: SearchIndexState,
   syncState: SyncState,
 ) {
   const updatedAt = Date.now()
 
-  await db.transaction("rw", db.profiles, db.meta, async () => {
-    await db.profiles.clear()
+  await db.transaction("rw", db.announcements, db.nodes, db.meta, async () => {
+    await db.announcements.clear()
+    await db.nodes.clear()
 
-    if (profiles.length > 0) {
-      await db.profiles.bulkPut(profiles)
+    if (announcements.length > 0) {
+      await db.announcements.bulkPut(announcements)
+    }
+
+    if (nodes.length > 0) {
+      await db.nodes.bulkPut(nodes)
     }
 
     await db.meta.bulkPut([
@@ -62,8 +78,9 @@ export async function saveDirectoryState(
 }
 
 export async function clearDirectoryState() {
-  await db.transaction("rw", db.profiles, db.meta, async () => {
-    await db.profiles.clear()
+  await db.transaction("rw", db.announcements, db.nodes, db.meta, async () => {
+    await db.announcements.clear()
+    await db.nodes.clear()
     await db.meta.clear()
   })
 }

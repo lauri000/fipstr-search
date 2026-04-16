@@ -1,137 +1,165 @@
 import {describe, expect, it} from "vitest"
-import type {Event} from "nostr-tools"
+import {nip19, type Event} from "nostr-tools"
 
 import {
-  applyProfileEvent,
-  getProfileTitle,
-  normalizeDiscoveryEvent,
-  takeLatestEvents,
+  announcementKey,
+  applyAnnouncementEvent,
+  buildDirectoryNodes,
+  getNodeTitle,
+  normalizeAnnouncementEvent,
+  takeLatestAnnouncements,
 } from "./normalize"
-import type {AuthorState, DirectoryProfileRecord} from "./types"
+import type {AnnouncementRecord} from "./types"
 
 function hex(char: string) {
   return char.repeat(64)
+}
+
+function npubFor(pubkey: string) {
+  return nip19.npubEncode(pubkey)
 }
 
 function makeEvent({
   pubkey = hex("a"),
   id = hex("1"),
   created_at = 1,
-  tags = [
-    ["d", "node-a"],
-    ["npub", "npub1vak0mql0unjjjcrznclhx9hptvqvwq4wmk4ppy3wrfg5s283k98q2y0ktt"],
-    ["alias", "Alpha Relay"],
-    ["transport", "udp", "172.20.0.10", "2121"],
-    ["service", "http", "80"],
-  ],
+  targetNpub = npubFor(hex("a")),
+  tags,
   content = "",
-}: Partial<Event> = {}): Event {
+}: Partial<Event> & {targetNpub?: string} = {}): Event {
   return {
     kind: 37195,
     pubkey,
     id,
     sig: hex("f"),
     created_at,
-    tags,
+    tags:
+      tags ??
+      [
+        ["d", "node-a"],
+        ["npub", targetNpub],
+        ["alias", "Alpha Relay"],
+        ["transport", "udp", "172.20.0.10", "2121"],
+        ["service", "http", "80"],
+      ],
     content,
   }
 }
 
-describe("normalizeDiscoveryEvent", () => {
-  it("turns a discovery announcement into a searchable directory record", () => {
-    const record = normalizeDiscoveryEvent(makeEvent())
+describe("normalizeAnnouncementEvent", () => {
+  it("turns a discovery announcement into an announcement record", () => {
+    const event = makeEvent()
+    const record = normalizeAnnouncementEvent(event)
 
     expect(record).not.toBeNull()
-    expect(record?.alias).toBe("Alpha Relay")
+    expect(record?.targetNpub).toBe(npubFor(event.pubkey))
+    expect(record?.id).toBe(announcementKey(event.pubkey, npubFor(event.pubkey)))
     expect(record?.summary).toContain("Services: http:80")
-    expect(record?.url).toMatch(/^http:\/\/npub1.+\.fips\/$/)
   })
 
   it("ignores announcements without the required npub tag", () => {
-    const record = normalizeDiscoveryEvent(makeEvent({tags: [["d", "node-a"], ["alias", "Alpha Relay"]]}))
+    const record = normalizeAnnouncementEvent(makeEvent({tags: [["d", "node-a"], ["alias", "Alpha Relay"]]}))
 
     expect(record).toBeNull()
   })
-
-  it("treats a newer invalid announcement as removing the active directory entry", () => {
-    const profiles = new Map<string, DirectoryProfileRecord>()
-    const authorStates = new Map<string, AuthorState>()
-    const original = makeEvent({created_at: 10, id: hex("2")})
-    const malformed = makeEvent({created_at: 11, id: hex("3"), tags: [["d", "node-a"]]})
-
-    applyProfileEvent(profiles, authorStates, original)
-    const changed = applyProfileEvent(profiles, authorStates, malformed)
-
-    expect(changed).toBe(true)
-    expect(profiles.has(original.pubkey)).toBe(false)
-    expect(authorStates.get(original.pubkey)?.eventId).toBe(malformed.id)
-  })
-
-  it("falls back to npub for the result title when alias is missing", () => {
-    const record = normalizeDiscoveryEvent(
-      makeEvent({
-        tags: [
-          ["d", "node-a"],
-          ["npub", "npub1vak0mql0unjjjcrznclhx9hptvqvwq4wmk4ppy3wrfg5s283k98q2y0ktt"],
-          ["service", "http", "80"],
-        ],
-      }),
-    )
-
-    expect(record).not.toBeNull()
-    expect(getProfileTitle(record!)).toBe(record?.npub)
-  })
 })
 
-describe("replaceable announcement handling", () => {
-  it("replaces an older announcement with a newer announcement", () => {
-    const profiles = new Map<string, DirectoryProfileRecord>()
-    const authorStates = new Map<string, AuthorState>()
-    const older = makeEvent({created_at: 10, id: hex("4")})
-    const newer = makeEvent({
-      created_at: 11,
-      id: hex("5"),
+describe("grouped discovery aggregation", () => {
+  it("collapses self-announcement and third-party re-announcement into one target row", () => {
+    const selfPubkey = hex("a")
+    const thirdPartyPubkey = hex("b")
+    const targetNpub = npubFor(selfPubkey)
+    const self = makeEvent({pubkey: selfPubkey, targetNpub, id: hex("1"), created_at: 10})
+    const repost = makeEvent({pubkey: thirdPartyPubkey, targetNpub, id: hex("2"), created_at: 11})
+
+    const announcements = takeLatestAnnouncements([self, repost])
+    const nodes = buildDirectoryNodes(announcements.values())
+    const node = nodes.get(targetNpub)
+
+    expect(nodes.size).toBe(1)
+    expect(node?.announcementCount).toBe(2)
+    expect(node?.canonicalAuthorPubkey).toBe(selfPubkey)
+    expect(getNodeTitle(node!)).toBe("Alpha Relay")
+  })
+
+  it("counts unique announcers rather than raw events", () => {
+    const targetPubkey = hex("c")
+    const authorPubkey = hex("d")
+    const targetNpub = npubFor(targetPubkey)
+    const announcements = new Map<string, AnnouncementRecord>()
+    const older = makeEvent({pubkey: authorPubkey, targetNpub, id: hex("3"), created_at: 10})
+    const newer = makeEvent({pubkey: authorPubkey, targetNpub, id: hex("4"), created_at: 11})
+
+    applyAnnouncementEvent(announcements, older)
+    applyAnnouncementEvent(announcements, newer)
+
+    const node = buildDirectoryNodes(announcements.values()).get(targetNpub)
+
+    expect(announcements.size).toBe(1)
+    expect(node?.announcementCount).toBe(1)
+    expect(node?.canonicalEventId).toBe(newer.id)
+  })
+
+  it("lets one author announce multiple targets", () => {
+    const authorPubkey = hex("e")
+    const targetOne = npubFor(hex("1"))
+    const targetTwo = npubFor(hex("2"))
+    const announcements = takeLatestAnnouncements([
+      makeEvent({pubkey: authorPubkey, targetNpub: targetOne, id: hex("5")}),
+      makeEvent({pubkey: authorPubkey, targetNpub: targetTwo, id: hex("6")}),
+    ])
+
+    const nodes = buildDirectoryNodes(announcements.values())
+
+    expect(nodes.size).toBe(2)
+    expect(nodes.get(targetOne)?.announcementCount).toBe(1)
+    expect(nodes.get(targetTwo)?.announcementCount).toBe(1)
+  })
+
+  it("falls back to the newest third-party announcement when there is no self-announcement", () => {
+    const targetNpub = npubFor(hex("7"))
+    const older = makeEvent({
+      pubkey: hex("8"),
+      targetNpub,
+      id: hex("7"),
+      created_at: 10,
       tags: [
-        ["d", "node-a"],
-        ["npub", "npub1vak0mql0unjjjcrznclhx9hptvqvwq4wmk4ppy3wrfg5s283k98q2y0ktt"],
-        ["alias", "Beta Relay"],
-        ["transport", "udp", "172.20.0.10", "2121"],
+        ["d", "target-x"],
+        ["npub", targetNpub],
+        ["alias", "Old Mirror"],
         ["service", "http", "80"],
-        ["service", "relay", "7777"],
+      ],
+    })
+    const newer = makeEvent({
+      pubkey: hex("9"),
+      targetNpub,
+      id: hex("8"),
+      created_at: 12,
+      tags: [
+        ["d", "target-x"],
+        ["npub", targetNpub],
+        ["alias", "New Mirror"],
+        ["service", "http", "80"],
       ],
     })
 
-    applyProfileEvent(profiles, authorStates, older)
-    const changed = applyProfileEvent(profiles, authorStates, newer)
+    const node = buildDirectoryNodes(takeLatestAnnouncements([older, newer]).values()).get(targetNpub)
 
-    expect(changed).toBe(true)
-    expect(profiles.get(older.pubkey)?.alias).toBe("Beta Relay")
-    expect(authorStates.get(older.pubkey)?.eventId).toBe(newer.id)
+    expect(node?.alias).toBe("New Mirror")
+    expect(node?.canonicalEventId).toBe(newer.id)
   })
 
-  it("removes an indexed profile when a newer event drops the required tags", () => {
-    const profiles = new Map<string, DirectoryProfileRecord>()
-    const authorStates = new Map<string, AuthorState>()
-    const tagged = makeEvent({created_at: 10, id: hex("6")})
-    const untagged = makeEvent({created_at: 11, id: hex("7"), tags: [["d", "node-a"]]})
-
-    applyProfileEvent(profiles, authorStates, tagged)
-    const changed = applyProfileEvent(profiles, authorStates, untagged)
-
-    expect(changed).toBe(true)
-    expect(profiles.has(tagged.pubkey)).toBe(false)
-    expect(authorStates.get(tagged.pubkey)?.active).toBe(false)
-  })
-
-  it("collapses duplicate relay copies down to one latest event per author", () => {
+  it("collapses duplicate relay copies down to one latest announcement per author and target", () => {
     const pubkey = hex("b")
-    const oldest = makeEvent({pubkey, created_at: 10, id: hex("8")})
-    const newest = makeEvent({pubkey, created_at: 12, id: hex("9")})
-    const sameTimestampLoser = makeEvent({pubkey, created_at: 12, id: hex("e")})
+    const targetNpub = npubFor(hex("f"))
+    const oldest = makeEvent({pubkey, targetNpub, created_at: 10, id: hex("8")})
+    const newest = makeEvent({pubkey, targetNpub, created_at: 12, id: hex("9")})
+    const sameTimestampLoser = makeEvent({pubkey, targetNpub, created_at: 12, id: hex("e")})
 
-    const latestByAuthor = takeLatestEvents([oldest, sameTimestampLoser, newest])
+    const latestAnnouncements = takeLatestAnnouncements([oldest, sameTimestampLoser, newest])
+    const record = latestAnnouncements.get(announcementKey(pubkey, targetNpub))
 
-    expect(latestByAuthor.size).toBe(1)
-    expect(latestByAuthor.get(pubkey)?.id).toBe(newest.id)
+    expect(latestAnnouncements.size).toBe(1)
+    expect(record?.eventId).toBe(newest.id)
   })
 })

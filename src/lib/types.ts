@@ -1,7 +1,7 @@
 import type {Event} from "nostr-tools"
 
 export const DISCOVERY_KIND = 37_195
-export const SEARCH_INDEX_VERSION = 2
+export const SEARCH_INDEX_VERSION = 3
 
 export type DiscoveryTransport = {
   protocol: string
@@ -14,19 +14,37 @@ export type DiscoveryService = {
   port: string
 }
 
-export type DirectoryProfileRecord = {
-  pubkey: string
-  npub: string
+export type AnnouncementRecord = {
+  id: string
+  authorPubkey: string
+  authorNpub: string
+  targetNpub: string
   eventId: string
   createdAt: number
   discriminator?: string
+  alias?: string
+  content: string
+  summary: string
+  transports: DiscoveryTransport[]
+  services: DiscoveryService[]
+  tags: string[][]
+  url: string
+}
+
+export type DirectoryNodeRecord = {
+  npub: string
   alias?: string
   summary: string
   transports: DiscoveryTransport[]
   services: DiscoveryService[]
   tags: string[][]
-  searchText: string
+  content: string
   url: string
+  announcementCount: number
+  announcerPubkeys: string[]
+  canonicalAnnouncementId: string
+  canonicalEventId: string
+  canonicalAuthorPubkey: string
 }
 
 export type SearchDocument = {
@@ -39,17 +57,19 @@ export type SearchDocument = {
   npub: string
   host: string
   url: string
+  announcementCount: number
 }
 
 export type DirectorySearchResult = SearchDocument & {
   score?: number
+  announcedByViewer: boolean
 }
 
 export type DirectorySnapshot = {
   status: string
   hydrated: boolean
   syncing: boolean
-  profilesCount: number
+  nodesCount: number
   relayCount: number
   error?: string
   lastSyncAt?: number
@@ -62,15 +82,8 @@ export type SearchIndexState = {
   docCount: number
 }
 
-export type AuthorState = {
-  eventId: string
-  createdAt: number
-  active: boolean
-}
-
 export type SyncState = {
   lastSyncAt?: number
-  authorStates: Record<string, AuthorState>
 }
 
 export type MetaRecord = {
@@ -79,11 +92,37 @@ export type MetaRecord = {
   updatedAt: number
 }
 
+export type UnsignedDiscoveryEvent = Pick<Event, "kind" | "created_at" | "tags" | "content">
+
+export type PublishSigner = {
+  method: "nip07" | "nsec"
+  pubkey: string
+  npub: string
+  signEvent: (event: UnsignedDiscoveryEvent) => Promise<Event>
+}
+
+export type AuthSnapshot = {
+  status: "anonymous" | "authenticating" | "authenticated"
+  extensionAvailable: boolean
+  error?: string
+  pubkey?: string
+  npub?: string
+  method?: PublishSigner["method"]
+}
+
 export type DirectoryRuntime = {
   subscribe: (listener: () => void) => () => void
   getSnapshot: () => DirectorySnapshot
-  search: (query: string) => DirectorySearchResult[]
+  search: (query: string, viewerPubkey?: string) => DirectorySearchResult[]
   start: () => () => void
+  reannounce: (targetNpub: string, signer: PublishSigner) => Promise<void>
 }
 
-export type EventMap = Map<string, Event>
+export type AuthRuntime = {
+  subscribe: (listener: () => void) => () => void
+  getSnapshot: () => AuthSnapshot
+  connectWithExtension: () => Promise<void>
+  connectWithNsec: (nsec: string) => Promise<void>
+  getSigner: () => PublishSigner | null
+  logout: () => void
+}
