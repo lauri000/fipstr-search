@@ -213,17 +213,13 @@ export default function App({service = directoryService, auth = authService}: Ap
           </>
         ) : (
           <button
-            aria-label={authSnapshot.extensionAvailable ? "Connect browser extension" : "Browser extension not detected"}
+            aria-label="Connect browser extension"
             className="auth-corner__button"
-            disabled={authSnapshot.status === "authenticating" || !authSnapshot.extensionAvailable}
+            disabled={authSnapshot.status === "authenticating"}
             onClick={handleExtensionLogin}
             type="button"
           >
-            {authSnapshot.status === "authenticating"
-              ? "Connecting..."
-              : authSnapshot.extensionAvailable
-                ? "Connect"
-                : "No extension"}
+            {authSnapshot.status === "authenticating" ? "Connecting..." : "Connect"}
           </button>
         )}
         <button

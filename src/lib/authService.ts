@@ -2,18 +2,26 @@ import {nip19, verifyEvent} from "nostr-tools"
 
 import type {AuthRuntime, AuthSnapshot, PublishSigner, UnsignedDiscoveryEvent} from "./types"
 
-function extensionAvailable() {
-  return (
+const EXTENSION_WAIT_MS = 1_500
+const EXTENSION_POLL_MS = 250
+const EXTENSION_MONITOR_MS = 10_000
+
+function getNostrExtension() {
+  if (
     typeof window !== "undefined" &&
     typeof window.nostr?.getPublicKey === "function" &&
     typeof window.nostr?.signEvent === "function"
-  )
+  ) {
+    return window.nostr
+  }
+
+  return undefined
 }
 
 function snapshotWithAvailability(snapshot: Omit<AuthSnapshot, "extensionAvailable">): AuthSnapshot {
   return {
     ...snapshot,
-    extensionAvailable: extensionAvailable(),
+    extensionAvailable: Boolean(getNostrExtension()),
   }
 }
 
@@ -28,12 +36,17 @@ function errorMessage(error: unknown) {
 export class AuthService implements AuthRuntime {
   private readonly listeners = new Set<() => void>()
   private signer: PublishSigner | null = null
+  private monitorInterval?: ReturnType<typeof setInterval>
+  private monitorTimeout?: ReturnType<typeof setTimeout>
+  private monitoringReady = false
   private state: AuthSnapshot = snapshotWithAvailability({
     status: "anonymous",
   })
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
+    this.ensureMonitoring()
+    this.refreshExtensionAvailability()
     return () => {
       this.listeners.delete(listener)
     }
@@ -51,7 +64,11 @@ export class AuthService implements AuthRuntime {
   }
 
   async connectWithExtension() {
-    if (!extensionAvailable()) {
+    this.ensureMonitoring()
+
+    const extension = await this.waitForExtension()
+
+    if (!extension) {
       this.setState({
         status: "anonymous",
         error: "No NIP-07 signer was detected in this browser.",
@@ -64,12 +81,6 @@ export class AuthService implements AuthRuntime {
     })
 
     try {
-      const extension = window.nostr
-
-      if (!extension) {
-        throw new Error("No NIP-07 signer was detected in this browser.")
-      }
-
       const pubkey = await extension.getPublicKey()
       const npub = nip19.npubEncode(pubkey)
       const signer: PublishSigner = {
@@ -121,6 +132,104 @@ export class AuthService implements AuthRuntime {
       ...nextState,
     })
     this.emit()
+  }
+
+  private ensureMonitoring() {
+    if (this.monitoringReady || typeof window === "undefined") {
+      return
+    }
+
+    this.monitoringReady = true
+
+    const refresh = () => {
+      const available = this.refreshExtensionAvailability()
+
+      if (available) {
+        this.stopPolling()
+      } else {
+        this.startPolling()
+      }
+    }
+
+    window.addEventListener("focus", refresh)
+    window.addEventListener("pageshow", refresh)
+    window.addEventListener("load", refresh, {once: true})
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", refresh)
+    }
+
+    this.startPolling()
+    queueMicrotask(refresh)
+  }
+
+  private refreshExtensionAvailability() {
+    const available = Boolean(getNostrExtension())
+    const nextError =
+      available && this.state.status === "anonymous" && this.state.error === "No NIP-07 signer was detected in this browser."
+        ? undefined
+        : this.state.error
+
+    if (available === this.state.extensionAvailable && nextError === this.state.error) {
+      return available
+    }
+
+    this.state = {
+      ...this.state,
+      extensionAvailable: available,
+      error: nextError,
+    }
+    this.emit()
+    return available
+  }
+
+  private startPolling() {
+    if (this.monitorInterval || typeof window === "undefined") {
+      return
+    }
+
+    this.monitorInterval = window.setInterval(() => {
+      if (this.refreshExtensionAvailability()) {
+        this.stopPolling()
+      }
+    }, EXTENSION_POLL_MS)
+
+    this.monitorTimeout = window.setTimeout(() => {
+      this.stopPolling()
+    }, EXTENSION_MONITOR_MS)
+  }
+
+  private stopPolling() {
+    if (this.monitorInterval) {
+      clearInterval(this.monitorInterval)
+      this.monitorInterval = undefined
+    }
+
+    if (this.monitorTimeout) {
+      clearTimeout(this.monitorTimeout)
+      this.monitorTimeout = undefined
+    }
+  }
+
+  private async waitForExtension(timeoutMs = EXTENSION_WAIT_MS) {
+    const existing = getNostrExtension()
+
+    if (existing || typeof window === "undefined") {
+      return existing
+    }
+
+    return new Promise<typeof window.nostr | undefined>((resolve) => {
+      const deadline = Date.now() + timeoutMs
+      const interval = window.setInterval(() => {
+        const extension = getNostrExtension()
+
+        if (extension || Date.now() >= deadline) {
+          clearInterval(interval)
+          this.refreshExtensionAvailability()
+          resolve(extension)
+        }
+      }, EXTENSION_POLL_MS)
+    })
   }
 }
 
