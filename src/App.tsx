@@ -76,6 +76,20 @@ function BackIcon() {
   )
 }
 
+function LogoutIcon() {
+  return (
+    <svg aria-hidden="true" className="auth-corner__icon" fill="none" viewBox="0 0 24 24">
+      <path
+        d="M10 6H6.75A1.75 1.75 0 0 0 5 7.75v8.5C5 17.22 5.78 18 6.75 18H10M14 8l4 4-4 4M18 12H9"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
 export default function App({service = directoryService, auth = authService}: AppProps) {
   const [view, setView] = useState<"search" | "settings">("search")
   const [query, setQuery] = useState("")
@@ -205,12 +219,20 @@ export default function App({service = directoryService, auth = authService}: Ap
           Extension login
         </span>
         {authSnapshot.status === "authenticated" ? (
-          <>
-            <p className="auth-corner__identity">Connected {shortNpub(authSnapshot.npub)}</p>
-            <button className="auth-corner__button auth-corner__button--secondary" onClick={handleLogout} type="button">
-              Log out
+          <div className="auth-corner__session">
+            <p className="auth-corner__identity" title={authSnapshot.npub}>
+              <span aria-hidden="true" className="auth-corner__status-dot" />
+              <span className="auth-corner__identity-text">{shortNpub(authSnapshot.npub)}</span>
+            </p>
+            <button
+              aria-label="Log out"
+              className="auth-corner__button auth-corner__button--secondary auth-corner__button--icon"
+              onClick={handleLogout}
+              type="button"
+            >
+              <LogoutIcon />
             </button>
-          </>
+          </div>
         ) : (
           <button
             aria-label="Connect browser extension"
@@ -219,7 +241,7 @@ export default function App({service = directoryService, auth = authService}: Ap
             onClick={handleExtensionLogin}
             type="button"
           >
-            {authSnapshot.status === "authenticating" ? "Connecting..." : "Connect"}
+            {authSnapshot.status === "authenticating" ? "Connecting..." : "nostr extension"}
           </button>
         )}
         <button
