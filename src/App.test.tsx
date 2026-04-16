@@ -75,7 +75,7 @@ describe("App", () => {
     const updateRelays = vi.fn(async () => undefined)
     render(<App auth={makeAuth()} service={makeService(updateRelays)} />)
 
-    fireEvent.click(screen.getByRole("button", {name: "Settings"}))
+    fireEvent.click(screen.getByRole("button", {name: "Open settings"}))
     fireEvent.change(screen.getByLabelText(/relay list/i), {
       target: {value: "wss://relay.one/\nwss://relay.two/"},
     })
