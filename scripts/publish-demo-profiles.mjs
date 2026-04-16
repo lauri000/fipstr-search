@@ -12,12 +12,14 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, "..", "..")
 const defaultSourceDir = path.join(repoRoot, "fips", "testing", "static", "generated-configs", "web-10")
 const defaultTopologyPath = path.join(repoRoot, "fips", "testing", "static", "configs", "topologies", "web-10.yaml")
+const defaultCatalogPath = path.join(repoRoot, "fips", "testing", "static", "configs", "web-10-catalog.tsv")
 
 function parseArgs(argv) {
   const options = {
     relay: DEFAULT_RELAY,
     source: defaultSourceDir,
     topology: defaultTopologyPath,
+    catalog: defaultCatalogPath,
     dryRun: false,
   }
 
@@ -38,6 +40,12 @@ function parseArgs(argv) {
 
     if (value === "--topology") {
       options.topology = path.resolve(argv[index + 1])
+      index += 1
+      continue
+    }
+
+    if (value === "--catalog") {
+      options.catalog = path.resolve(argv[index + 1])
       index += 1
       continue
     }
@@ -78,13 +86,29 @@ function extractDockerIp(topologyText, nodeId) {
   return ipMatch?.[1]
 }
 
-function buildTags(nodeId, npub, dockerIp) {
-  const label = nodeId.toUpperCase()
+function parseCatalog(catalogText) {
+  const rows = catalogText
+    .trim()
+    .split(/\r?\n/u)
+    .slice(1)
+    .map((line) => line.split("\t"))
+
+  return new Map(
+    rows.map((columns) => {
+      const [nodeId, alias, serviceName] = columns
+      return [nodeId, {alias, serviceName}]
+    }),
+  )
+}
+
+function buildTags(nodeId, npub, dockerIp, catalogEntry) {
+  const alias = catalogEntry?.alias ?? `Node ${nodeId.toUpperCase()}`
+  const serviceName = catalogEntry?.serviceName ?? `node-${nodeId}-web`
   const tags = [
     ["d", `web-10-node-${nodeId}`],
     ["npub", npub],
-    ["alias", `FIPS Node ${label}`],
-    ["service", "http", "80"],
+    ["alias", alias],
+    ["service", serviceName, "80"],
   ]
 
   if (dockerIp) {
@@ -94,7 +118,7 @@ function buildTags(nodeId, npub, dockerIp) {
   return tags
 }
 
-async function loadProfiles(sourceDir, topologyPath) {
+async function loadProfiles(sourceDir, topologyPath, catalogPath) {
   const entries = await readdir(sourceDir, {withFileTypes: true})
   const nodeFiles = entries
     .filter((entry) => entry.isFile())
@@ -104,6 +128,7 @@ async function loadProfiles(sourceDir, topologyPath) {
 
   const createdAtBase = Math.floor(Date.now() / 1000)
   const topologyText = await readFile(topologyPath, "utf8")
+  const catalog = parseCatalog(await readFile(catalogPath, "utf8"))
   const profiles = []
 
   for (const [index, fileName] of nodeFiles.entries()) {
@@ -120,12 +145,13 @@ async function loadProfiles(sourceDir, topologyPath) {
     const pubkey = getPublicKey(secretKey)
     const npub = nip19.npubEncode(pubkey)
     const dockerIp = extractDockerIp(topologyText, nodeId)
+    const catalogEntry = catalog.get(nodeId)
 
     const event = finalizeEvent(
       {
         kind: DISCOVERY_KIND,
         created_at: createdAtBase + index,
-        tags: buildTags(nodeId, npub, dockerIp),
+        tags: buildTags(nodeId, npub, dockerIp, catalogEntry),
         content: "",
       },
       secretKey,
@@ -133,6 +159,8 @@ async function loadProfiles(sourceDir, topologyPath) {
 
     profiles.push({
       nodeId,
+      alias: catalogEntry?.alias ?? `Node ${nodeId.toUpperCase()}`,
+      serviceName: catalogEntry?.serviceName ?? `node-${nodeId}-web`,
       npub,
       host: `${npub}.fips`,
       url: `http://${npub}.fips/`,
@@ -145,7 +173,7 @@ async function loadProfiles(sourceDir, topologyPath) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2))
-  const profiles = await loadProfiles(options.source, options.topology)
+  const profiles = await loadProfiles(options.source, options.topology, options.catalog)
 
   if (profiles.length === 0) {
     throw new Error(`No node configs found in ${options.source}`)
@@ -153,7 +181,7 @@ async function main() {
 
   if (options.dryRun) {
     for (const profile of profiles) {
-      console.log(`${profile.nodeId}: ${profile.npub} -> ${profile.url}`)
+      console.log(`${profile.nodeId}: ${profile.alias} (${profile.serviceName}) -> ${profile.url}`)
     }
     return
   }
@@ -163,7 +191,7 @@ async function main() {
   try {
     for (const profile of profiles) {
       await relay.publish(profile.event)
-      console.log(`published ${profile.nodeId}: ${profile.npub}`)
+      console.log(`published ${profile.nodeId}: ${profile.alias} (${profile.serviceName}) -> ${profile.npub}`)
     }
   } finally {
     relay.close()
