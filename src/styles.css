@@ -125,9 +125,46 @@ input {
   letter-spacing: -0.065em;
 }
 
+.brand--wordmark {
+  position: relative;
+  display: inline-flex;
+  justify-self: center;
+  width: fit-content;
+  align-items: flex-end;
+  padding-right: 84px;
+}
+
+.brand__label {
+  display: inline-block;
+}
+
+.brand__pill {
+  position: absolute;
+  right: 0;
+  bottom: 0.55em;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #0e665c;
+  color: #fffaf4;
+  font-size: 0.24em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  transform: rotate(-11deg);
+  box-shadow: 0 10px 24px rgba(14, 102, 92, 0.22);
+}
+
 .app--active .brand {
   text-align: left;
   font-size: clamp(1.6rem, 4vw, 2.25rem);
+}
+
+.app--active .brand--wordmark {
+  justify-self: start;
+  padding-right: 72px;
 }
 
 .brand--settings {
@@ -397,6 +434,16 @@ input {
     height: 60px;
     padding-inline: 20px;
     font-size: 1rem;
+  }
+
+  .brand--wordmark {
+    padding-right: 68px;
+  }
+
+  .brand__pill {
+    min-height: 24px;
+    padding: 0 10px;
+    bottom: 0.5em;
   }
 
   .result-card {
