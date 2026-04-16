@@ -8,27 +8,17 @@ describe("AuthService", () => {
     delete window.nostr
   })
 
-  it("derives a session signer from a pasted nsec and forgets it on logout", async () => {
+  it("reports a missing extension without authenticating", async () => {
     const auth = new AuthService()
-    const secretKey = generateSecretKey()
-    const nsec = nip19.nsecEncode(secretKey)
 
-    await auth.connectWithNsec(nsec)
-
-    const snapshot = auth.getSnapshot()
-    const signer = auth.getSigner()
-
-    expect(snapshot.status).toBe("authenticated")
-    expect(snapshot.pubkey).toBe(getPublicKey(secretKey))
-    expect(signer?.method).toBe("nsec")
-
-    auth.logout()
+    await auth.connectWithExtension()
 
     expect(auth.getSnapshot().status).toBe("anonymous")
+    expect(auth.getSnapshot().error).toBe("No NIP-07 signer was detected in this browser.")
     expect(auth.getSigner()).toBeNull()
   })
 
-  it("uses a NIP-07 extension signer when available", async () => {
+  it("uses a NIP-07 extension signer when available and forgets it on logout", async () => {
     const auth = new AuthService()
     const secretKey = generateSecretKey()
     const pubkey = getPublicKey(secretKey)
@@ -54,5 +44,10 @@ describe("AuthService", () => {
     expect(window.nostr.getPublicKey).toHaveBeenCalled()
     expect(window.nostr.signEvent).toHaveBeenCalled()
     expect(signed?.pubkey).toBe(pubkey)
+
+    auth.logout()
+
+    expect(auth.getSnapshot().status).toBe("anonymous")
+    expect(auth.getSigner()).toBeNull()
   })
 })

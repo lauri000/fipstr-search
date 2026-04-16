@@ -68,7 +68,7 @@ describe("DirectoryService", () => {
     const announcerSecretKey = generateSecretKey()
     const announcerPubkey = getPublicKey(announcerSecretKey)
     const signer: PublishSigner = {
-      method: "nsec",
+      method: "nip07",
       pubkey: announcerPubkey,
       npub: nip19.npubEncode(announcerPubkey),
       signEvent: async (event) => finalizeEvent(event, announcerSecretKey),

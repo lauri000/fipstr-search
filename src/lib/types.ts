@@ -95,7 +95,7 @@ export type MetaRecord = {
 export type UnsignedDiscoveryEvent = Pick<Event, "kind" | "created_at" | "tags" | "content">
 
 export type PublishSigner = {
-  method: "nip07" | "nsec"
+  method: "nip07"
   pubkey: string
   npub: string
   signEvent: (event: UnsignedDiscoveryEvent) => Promise<Event>
@@ -122,7 +122,6 @@ export type AuthRuntime = {
   subscribe: (listener: () => void) => () => void
   getSnapshot: () => AuthSnapshot
   connectWithExtension: () => Promise<void>
-  connectWithNsec: (nsec: string) => Promise<void>
   getSigner: () => PublishSigner | null
   logout: () => void
 }

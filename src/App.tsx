@@ -1,9 +1,9 @@
 import {
   startTransition,
   type ChangeEvent,
-  type FormEvent,
   useDeferredValue,
   useEffect,
+  useId,
   useState,
   useSyncExternalStore,
 } from "react"
@@ -48,10 +48,9 @@ function errorMessage(error: unknown) {
 
 export default function App({service = directoryService, auth = authService}: AppProps) {
   const [query, setQuery] = useState("")
-  const [showNsecForm, setShowNsecForm] = useState(false)
-  const [nsecValue, setNsecValue] = useState("")
   const [publishingTarget, setPublishingTarget] = useState<string | null>(null)
   const [flashMessage, setFlashMessage] = useState<FlashMessage | null>(null)
+  const authLabelId = useId()
 
   const snapshot = useSyncExternalStore(service.subscribe, service.getSnapshot, service.getSnapshot)
   const authSnapshot = useSyncExternalStore(auth.subscribe, auth.getSnapshot, auth.getSnapshot)
@@ -63,13 +62,6 @@ export default function App({service = directoryService, auth = authService}: Ap
     const stop = service.start()
     return stop
   }, [service])
-
-  useEffect(() => {
-    if (authSnapshot.status === "authenticated") {
-      setShowNsecForm(false)
-      setNsecValue("")
-    }
-  }, [authSnapshot.status])
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     const nextValue = event.target.value
@@ -84,12 +76,6 @@ export default function App({service = directoryService, auth = authService}: Ap
     await auth.connectWithExtension()
   }
 
-  async function handleNsecSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setFlashMessage(null)
-    await auth.connectWithNsec(nsecValue)
-  }
-
   function handleLogout() {
     auth.logout()
     setFlashMessage(null)
@@ -99,13 +85,8 @@ export default function App({service = directoryService, auth = authService}: Ap
     if (authSnapshot.status !== "authenticated") {
       setFlashMessage({
         tone: "error",
-        text: "Connect a signer before re-announcing a node.",
+        text: "Connect your browser extension before re-announcing a node.",
       })
-
-      if (!authSnapshot.extensionAvailable) {
-        setShowNsecForm(true)
-      }
-
       return
     }
 
@@ -142,6 +123,33 @@ export default function App({service = directoryService, auth = authService}: Ap
 
   return (
     <main className={`app ${trimmedQuery ? "app--active" : ""}`}>
+      <div aria-labelledby={authLabelId} className="auth-corner" role="group">
+        <span className="visually-hidden" id={authLabelId}>
+          Extension login
+        </span>
+        {authSnapshot.status === "authenticated" ? (
+          <>
+            <p className="auth-corner__identity">Connected {shortNpub(authSnapshot.npub)}</p>
+            <button className="auth-corner__button auth-corner__button--secondary" onClick={handleLogout} type="button">
+              Log out
+            </button>
+          </>
+        ) : (
+          <button
+            aria-label={authSnapshot.extensionAvailable ? "Connect browser extension" : "Browser extension not detected"}
+            className="auth-corner__button"
+            disabled={authSnapshot.status === "authenticating" || !authSnapshot.extensionAvailable}
+            onClick={handleExtensionLogin}
+            type="button"
+          >
+            {authSnapshot.status === "authenticating"
+              ? "Connecting..."
+              : authSnapshot.extensionAvailable
+                ? "Connect"
+                : "No extension"}
+          </button>
+        )}
+      </div>
       <section className="search-shell" aria-label="Search FIPS nodes">
         <p className="brand">FIPS Node Search</p>
         <label className="visually-hidden" htmlFor="node-search">
@@ -158,57 +166,6 @@ export default function App({service = directoryService, auth = authService}: Ap
           type="search"
           value={query}
         />
-        <div className="auth-panel" aria-label="Announcement signer">
-          {authSnapshot.status === "authenticated" ? (
-            <div className="auth-panel__connected">
-              <p className="auth-chip">
-                Signed in as <strong>{shortNpub(authSnapshot.npub)}</strong>
-              </p>
-              <p className="auth-chip auth-chip--muted">{authSnapshot.method === "nip07" ? "NIP-07 signer" : "Session nsec"}</p>
-              <button className="auth-button auth-button--secondary" onClick={handleLogout} type="button">
-                Log out
-              </button>
-            </div>
-          ) : (
-            <div className="auth-panel__actions">
-              <button
-                className="auth-button"
-                disabled={authSnapshot.status === "authenticating" || !authSnapshot.extensionAvailable}
-                onClick={handleExtensionLogin}
-                type="button"
-              >
-                {authSnapshot.extensionAvailable ? "Connect with extension" : "No extension detected"}
-              </button>
-              <button
-                className="auth-button auth-button--secondary"
-                disabled={authSnapshot.status === "authenticating"}
-                onClick={() => setShowNsecForm((current) => !current)}
-                type="button"
-              >
-                Use nsec
-              </button>
-            </div>
-          )}
-
-          {showNsecForm && authSnapshot.status !== "authenticated" ? (
-            <form className="auth-panel__nsec" onSubmit={handleNsecSubmit}>
-              <label className="visually-hidden" htmlFor="nsec-input">
-                Paste an nsec private key
-              </label>
-              <input
-                className="nsec-input"
-                id="nsec-input"
-                onChange={(event) => setNsecValue(event.target.value)}
-                placeholder="nsec1..."
-                type="password"
-                value={nsecValue}
-              />
-              <button className="auth-button" disabled={authSnapshot.status === "authenticating" || !nsecValue.trim()} type="submit">
-                {authSnapshot.status === "authenticating" ? "Signing in..." : "Connect nsec"}
-              </button>
-            </form>
-          ) : null}
-        </div>
         <p className="status">{statusText}</p>
         {snapshot.error ? <p className="status status--error">{snapshot.error}</p> : null}
         {authSnapshot.error ? <p className="status status--error">{authSnapshot.error}</p> : null}
@@ -221,7 +178,7 @@ export default function App({service = directoryService, auth = authService}: Ap
             results.map((result) => {
               const announceLabel =
                 authSnapshot.status !== "authenticated"
-                  ? "Log in to announce"
+                  ? "Connect to announce"
                   : result.announcedByViewer
                     ? "Announce again"
                     : "Re-announce"

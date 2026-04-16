@@ -118,13 +118,8 @@ http://<npub>.fips/
 
 ## Signing In And Re-Announcing
 
-The page supports two local signing methods:
-
-- NIP-07 browser extension
-- pasted `nsec`
-
-`nsec` keys are kept in memory only for the current tab. They are not written
-to IndexedDB or browser storage.
+The page uses a NIP-07 browser extension for signing. The login control sits in
+the top-right corner so the search UI stays uncluttered.
 
 When signed in, every result card shows a `Re-announce` or `Announce again`
 button. Clicking it republishes the canonical discovery event with the same

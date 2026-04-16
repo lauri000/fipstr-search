@@ -1,4 +1,4 @@
-import {finalizeEvent, getPublicKey, nip19, verifyEvent} from "nostr-tools"
+import {nip19, verifyEvent} from "nostr-tools"
 
 import type {AuthRuntime, AuthSnapshot, PublishSigner, UnsignedDiscoveryEvent} from "./types"
 
@@ -92,45 +92,6 @@ export class AuthService implements AuthRuntime {
 
           return signed
         },
-      }
-
-      this.signer = signer
-      this.setState({
-        status: "authenticated",
-        pubkey,
-        npub,
-        method: signer.method,
-      })
-    } catch (error) {
-      this.signer = null
-      this.setState({
-        status: "anonymous",
-        error: errorMessage(error),
-      })
-    }
-  }
-
-  async connectWithNsec(nsec: string) {
-    this.setState({
-      status: "authenticating",
-    })
-
-    try {
-      const trimmed = nsec.trim()
-      const decoded = nip19.decode(trimmed)
-
-      if (decoded.type !== "nsec") {
-        throw new Error("Expected an nsec private key.")
-      }
-
-      const secretKey = decoded.data
-      const pubkey = getPublicKey(secretKey)
-      const npub = nip19.npubEncode(pubkey)
-      const signer: PublishSigner = {
-        method: "nsec",
-        pubkey,
-        npub,
-        signEvent: async (eventTemplate: UnsignedDiscoveryEvent) => finalizeEvent(eventTemplate, secretKey),
       }
 
       this.signer = signer

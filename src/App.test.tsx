@@ -45,7 +45,7 @@ function makeAuth(snapshotOverride: Partial<AuthSnapshot> = {}): AuthRuntime {
     extensionAvailable: true,
     pubkey: "a".repeat(64),
     npub: "npub1viewer00000000000000000000000000000000000000000000000000",
-    method: "nsec",
+    method: "nip07",
     ...snapshotOverride,
   }
 
@@ -53,11 +53,10 @@ function makeAuth(snapshotOverride: Partial<AuthSnapshot> = {}): AuthRuntime {
     subscribe: () => () => undefined,
     getSnapshot: () => snapshotValue,
     connectWithExtension: vi.fn(async () => undefined),
-    connectWithNsec: vi.fn(async () => undefined),
     getSigner: () =>
       snapshotValue.status === "authenticated"
         ? ({
-            method: snapshotValue.method ?? "nsec",
+            method: snapshotValue.method ?? "nip07",
             pubkey: snapshotValue.pubkey!,
             npub: snapshotValue.npub!,
             signEvent: vi.fn(async () => {
@@ -104,8 +103,8 @@ describe("App", () => {
     fireEvent.change(screen.getByRole("searchbox", {name: /search fips discovery announcements/i}), {
       target: {value: "alpha"},
     })
-    fireEvent.click(screen.getByRole("button", {name: "Log in to announce"}))
+    fireEvent.click(screen.getByRole("button", {name: "Connect to announce"}))
 
-    expect(screen.getByText("Connect a signer before re-announcing a node.")).toBeInTheDocument()
+    expect(screen.getByText("Connect your browser extension before re-announcing a node.")).toBeInTheDocument()
   })
 })
