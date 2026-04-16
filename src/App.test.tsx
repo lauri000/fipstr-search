@@ -10,6 +10,7 @@ const snapshot: DirectorySnapshot = {
   syncing: false,
   nodesCount: 1,
   relayCount: 5,
+  relays: ["wss://temp.iris.to/", "wss://vault.iris.to/"],
 }
 
 const results: DirectorySearchResult[] = [
@@ -29,13 +30,14 @@ const results: DirectorySearchResult[] = [
   },
 ]
 
-function makeService(): DirectoryRuntime {
+function makeService(updateRelays = vi.fn(async () => undefined)): DirectoryRuntime {
   return {
     subscribe: () => () => undefined,
     getSnapshot: () => snapshot,
     search: (query) => (query ? results : []),
     start: () => () => undefined,
     reannounce: vi.fn(async () => undefined),
+    updateRelays,
   }
 }
 
@@ -69,6 +71,19 @@ function makeAuth(snapshotOverride: Partial<AuthSnapshot> = {}): AuthRuntime {
 }
 
 describe("App", () => {
+  it("opens settings and saves relay updates through the service", () => {
+    const updateRelays = vi.fn(async () => undefined)
+    render(<App auth={makeAuth()} service={makeService(updateRelays)} />)
+
+    fireEvent.click(screen.getByRole("button", {name: "Settings"}))
+    fireEvent.change(screen.getByLabelText(/relay list/i), {
+      target: {value: "wss://relay.one/\nwss://relay.two/"},
+    })
+    fireEvent.submit(screen.getByRole("button", {name: "Save relays"}).closest("form")!)
+
+    expect(updateRelays).toHaveBeenCalledWith(["wss://relay.one/", "wss://relay.two/"])
+  })
+
   it("shows grouped results with score, viewer state, and an explicit http npub.fips link", () => {
     render(<App auth={makeAuth()} service={makeService()} />)
 

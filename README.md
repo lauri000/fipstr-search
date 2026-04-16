@@ -40,6 +40,9 @@ Open the app at the URL Vite prints, usually:
 http://127.0.0.1:5173
 ```
 
+Use the `Settings` button in the top-right corner to edit the relay list. Saved
+relay URLs are persisted in IndexedDB and reused on the next app load.
+
 ## Local Demo With The 10-Node Mesh
 
 Start the local relay in one terminal:

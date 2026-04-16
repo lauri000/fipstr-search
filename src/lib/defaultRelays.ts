@@ -12,14 +12,14 @@ const TEST_RELAY = ["wss://temp.iris.to/"]
 
 export function getDefaultRelays() {
   if (import.meta.env.VITE_USE_TEST_RELAY) {
-    return TEST_RELAY
+    return [...TEST_RELAY]
   }
 
   if (import.meta.env.VITE_USE_LOCAL_RELAY) {
-    return LOCAL_RELAY
+    return [...LOCAL_RELAY]
   }
 
-  return PRODUCTION_RELAYS
+  return [...PRODUCTION_RELAYS]
 }
 
 export const DEFAULT_RELAYS = getDefaultRelays()

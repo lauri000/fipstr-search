@@ -107,7 +107,8 @@ input {
 }
 
 .search-shell,
-.results {
+.results,
+.settings-shell {
   width: min(760px, 100%);
 }
 
@@ -127,6 +128,11 @@ input {
 .app--active .brand {
   text-align: left;
   font-size: clamp(1.6rem, 4vw, 2.25rem);
+}
+
+.brand--settings {
+  text-align: left;
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
 }
 
 .search-input {
@@ -175,6 +181,36 @@ input {
   cursor: default;
 }
 
+.settings-button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease;
+  background: #0e665c;
+  color: #fffaf4;
+  box-shadow: 0 12px 26px rgba(14, 102, 92, 0.2);
+}
+
+.settings-button--secondary {
+  background: rgba(45, 26, 10, 0.08);
+  color: inherit;
+  box-shadow: none;
+}
+
+.settings-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.settings-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .status {
   margin: 0;
   font-size: 0.96rem;
@@ -193,6 +229,57 @@ input {
   margin-top: 28px;
   display: grid;
   gap: 14px;
+}
+
+.settings-shell {
+  display: grid;
+  gap: 16px;
+  padding: 22px 24px;
+  border: 1px solid rgba(45, 26, 10, 0.08);
+  border-radius: 28px;
+  background: rgba(255, 252, 248, 0.78);
+  box-shadow: 0 18px 40px rgba(81, 54, 24, 0.08);
+}
+
+.settings-copy {
+  margin: 0;
+  color: rgba(37, 25, 13, 0.78);
+}
+
+.settings-form {
+  display: grid;
+  gap: 14px;
+}
+
+.relay-textarea {
+  min-height: 220px;
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid rgba(45, 26, 10, 0.12);
+  border-radius: 20px;
+  background: rgba(255, 252, 248, 0.92);
+  box-shadow:
+    0 18px 50px rgba(81, 54, 24, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  color: inherit;
+  font: inherit;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+}
+
+.relay-textarea:focus {
+  border-color: rgba(16, 109, 100, 0.28);
+  box-shadow:
+    0 18px 50px rgba(81, 54, 24, 0.11),
+    0 0 0 4px rgba(16, 109, 100, 0.12);
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 .result-card {
@@ -315,6 +402,11 @@ input {
   .result-card {
     padding: 16px 18px;
     border-radius: 20px;
+  }
+
+  .settings-shell {
+    padding: 18px 18px 20px;
+    border-radius: 22px;
   }
 
   .result-card__header,

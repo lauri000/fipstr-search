@@ -10,6 +10,7 @@ import type {
 
 export const SEARCH_INDEX_META_KEY = "search-index"
 export const SYNC_STATE_META_KEY = "sync-state"
+export const RELAYS_META_KEY = "relays"
 
 class DirectoryDatabase extends Dexie {
   announcements!: Table<AnnouncementRecord, string>
@@ -35,11 +36,12 @@ class DirectoryDatabase extends Dexie {
 export const db = new DirectoryDatabase()
 
 export async function loadDirectoryState() {
-  const [announcements, nodes, searchIndexRecord, syncStateRecord] = await Promise.all([
+  const [announcements, nodes, searchIndexRecord, syncStateRecord, relaysRecord] = await Promise.all([
     db.announcements.toArray(),
     db.nodes.toArray(),
     db.meta.get(SEARCH_INDEX_META_KEY),
     db.meta.get(SYNC_STATE_META_KEY),
+    db.meta.get(RELAYS_META_KEY),
   ])
 
   return {
@@ -47,6 +49,7 @@ export async function loadDirectoryState() {
     nodes,
     searchIndex: searchIndexRecord?.value as SearchIndexState | undefined,
     syncState: syncStateRecord?.value as SyncState | undefined,
+    relays: relaysRecord?.value as string[] | undefined,
   }
 }
 
@@ -82,5 +85,18 @@ export async function clearDirectoryState() {
     await db.announcements.clear()
     await db.nodes.clear()
     await db.meta.clear()
+  })
+}
+
+export async function loadRelaySettings() {
+  const record = await db.meta.get(RELAYS_META_KEY)
+  return record?.value as string[] | undefined
+}
+
+export async function saveRelaySettings(relays: string[]) {
+  await db.meta.put({
+    key: RELAYS_META_KEY,
+    value: relays,
+    updatedAt: Date.now(),
   })
 }

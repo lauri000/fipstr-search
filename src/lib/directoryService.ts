@@ -1,6 +1,6 @@
 import {SimplePool, verifyEvent, type Event, type Filter} from "nostr-tools"
 
-import {loadDirectoryState, saveDirectoryState} from "./db"
+import {loadDirectoryState, saveDirectoryState, saveRelaySettings} from "./db"
 import {DEFAULT_RELAYS} from "./defaultRelays"
 import {applyAnnouncementEvent, buildDirectoryNodes, takeLatestAnnouncements} from "./normalize"
 import {buildSearchIndex, loadSearchIndex, searchDirectory, serializeSearchIndex} from "./search"
@@ -28,6 +28,16 @@ const DISCOVERY_FILTER: Filter = {
   kinds: [DISCOVERY_KIND],
 }
 
+function normalizeRelays(relays: string[]) {
+  return Array.from(
+    new Set(
+      relays
+        .map((relay) => relay.trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
 function formatNodeCount(count: number) {
   return `${count} node${count === 1 ? "" : "s"}`
 }
@@ -52,7 +62,7 @@ function createPool() {
 }
 
 export class DirectoryService implements DirectoryRuntime {
-  private readonly relays: string[]
+  private relays: string[]
   private readonly pool: RelayPool
   private readonly listeners = new Set<() => void>()
 
@@ -68,7 +78,7 @@ export class DirectoryService implements DirectoryRuntime {
   private state: DirectorySnapshot
 
   constructor(relays = DEFAULT_RELAYS, pool: RelayPool = createPool()) {
-    this.relays = relays
+    this.relays = normalizeRelays(relays)
     this.pool = pool
 
     this.state = {
@@ -77,6 +87,7 @@ export class DirectoryService implements DirectoryRuntime {
       syncing: true,
       nodesCount: 0,
       relayCount: this.relays.length,
+      relays: [...this.relays],
     }
   }
 
@@ -144,6 +155,36 @@ export class DirectoryService implements DirectoryRuntime {
     await this.handleIncomingEvent(signedEvent)
   }
 
+  updateRelays = async (relays: string[]) => {
+    const normalized = normalizeRelays(relays)
+
+    if (normalized.length === 0) {
+      throw new Error("Add at least one relay URL.")
+    }
+
+    const unchanged =
+      normalized.length === this.relays.length &&
+      normalized.every((relay, index) => relay === this.relays[index])
+
+    await saveRelaySettings(normalized)
+
+    if (unchanged) {
+      return
+    }
+
+    this.relays = normalized
+    this.setState({
+      relayCount: this.relays.length,
+      relays: [...this.relays],
+    })
+
+    if (!this.started) {
+      return
+    }
+
+    await this.refreshRelaySubscriptions()
+  }
+
   private stop = () => {
     if (!this.started) {
       return
@@ -187,32 +228,13 @@ export class DirectoryService implements DirectoryRuntime {
       return
     }
 
-    try {
-      await this.performInitialSync()
-    } catch (error) {
-      this.setState({
-        syncing: false,
-        error: errorMessage(error),
-        status:
-          this.nodes.size > 0
-            ? `Using ${formatNodeCount(this.nodes.size)} from cache while relay sync failed`
-            : "Relay sync failed. Waiting for live updates",
-      })
-    }
-
-    if (!this.started) {
-      return
-    }
-
-    this.startLiveSubscriptions()
-    this.setState({
-      syncing: false,
-      status: this.getLiveStatusMessage(),
-    })
+    await this.refreshRelaySubscriptions()
   }
 
   private async hydrateFromCache() {
-    const {announcements, nodes, searchIndex, syncState} = await loadDirectoryState()
+    const {announcements, nodes, searchIndex, syncState, relays} = await loadDirectoryState()
+
+    this.relays = relays && relays.length > 0 ? normalizeRelays(relays) : normalizeRelays(DEFAULT_RELAYS)
 
     this.announcements = new Map(announcements.map((announcement) => [announcement.id, announcement]))
     this.nodes = new Map(nodes.map((node) => [node.npub, node]))
@@ -231,6 +253,8 @@ export class DirectoryService implements DirectoryRuntime {
       hydrated: true,
       syncing: true,
       nodesCount: this.nodes.size,
+      relayCount: this.relays.length,
+      relays: [...this.relays],
       lastSyncAt: syncState?.lastSyncAt,
       error: undefined,
       status:
@@ -238,10 +262,42 @@ export class DirectoryService implements DirectoryRuntime {
     })
   }
 
+  private async refreshRelaySubscriptions() {
+    try {
+      await this.performInitialSync()
+    } catch (error) {
+      this.setState({
+        syncing: false,
+        error: errorMessage(error),
+        relayCount: this.relays.length,
+        relays: [...this.relays],
+        status:
+          this.nodes.size > 0
+            ? `Using ${formatNodeCount(this.nodes.size)} from cache while relay sync failed`
+            : "Relay sync failed. Waiting for live updates",
+      })
+      return
+    }
+
+    if (!this.started) {
+      return
+    }
+
+    this.startLiveSubscriptions()
+    this.setState({
+      syncing: false,
+      relayCount: this.relays.length,
+      relays: [...this.relays],
+      status: this.getLiveStatusMessage(),
+    })
+  }
+
   private async performInitialSync() {
     this.setState({
       syncing: true,
       error: undefined,
+      relayCount: this.relays.length,
+      relays: [...this.relays],
       status: "Syncing discovery announcements...",
     })
 
@@ -256,6 +312,8 @@ export class DirectoryService implements DirectoryRuntime {
     this.setState({
       syncing: false,
       nodesCount: this.nodes.size,
+      relayCount: this.relays.length,
+      relays: [...this.relays],
       lastSyncAt: syncedAt,
       status: this.nodes.size > 0 ? `Indexed ${formatNodeCount(this.nodes.size)}` : "No discovery announcements found yet",
     })
@@ -294,6 +352,8 @@ export class DirectoryService implements DirectoryRuntime {
     this.schedulePersist(syncedAt)
     this.setState({
       nodesCount: this.nodes.size,
+      relayCount: this.relays.length,
+      relays: [...this.relays],
       lastSyncAt: syncedAt,
       error: undefined,
       status: this.getLiveStatusMessage(),

@@ -71,6 +71,7 @@ export type DirectorySnapshot = {
   syncing: boolean
   nodesCount: number
   relayCount: number
+  relays: string[]
   error?: string
   lastSyncAt?: number
 }
@@ -116,6 +117,7 @@ export type DirectoryRuntime = {
   search: (query: string, viewerPubkey?: string) => DirectorySearchResult[]
   start: () => () => void
   reannounce: (targetNpub: string, signer: PublishSigner) => Promise<void>
+  updateRelays: (relays: string[]) => Promise<void>
 }
 
 export type AuthRuntime = {
