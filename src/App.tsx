@@ -48,6 +48,34 @@ function errorMessage(error: unknown) {
   return "Unknown publishing error"
 }
 
+function SettingsIcon() {
+  return (
+    <svg aria-hidden="true" className="auth-corner__icon" fill="none" viewBox="0 0 24 24">
+      <path
+        d="M10.34 3.2h3.32l.42 2.02c.43.14.84.31 1.23.51l1.78-1.05 2.35 2.35-1.05 1.78c.2.39.37.8.51 1.23l2.02.42v3.32l-2.02.42c-.14.43-.31.84-.51 1.23l1.05 1.78-2.35 2.35-1.78-1.05c-.39.2-.8.37-1.23.51l-.42 2.02h-3.32l-.42-2.02a8.13 8.13 0 0 1-1.23-.51l-1.78 1.05-2.35-2.35 1.05-1.78a8.13 8.13 0 0 1-.51-1.23l-2.02-.42v-3.32l2.02-.42c.14-.43.31-.84.51-1.23L4.68 7.03l2.35-2.35 1.78 1.05c.39-.2.8-.37 1.23-.51l.3-2.02ZM12 9.1a2.9 2.9 0 1 0 0 5.8 2.9 2.9 0 0 0 0-5.8Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
+function BackIcon() {
+  return (
+    <svg aria-hidden="true" className="auth-corner__icon" fill="none" viewBox="0 0 24 24">
+      <path
+        d="M15 6l-6 6 6 6M9 12h10"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
 export default function App({service = directoryService, auth = authService}: AppProps) {
   const [view, setView] = useState<"search" | "settings">("search")
   const [query, setQuery] = useState("")
@@ -198,8 +226,13 @@ export default function App({service = directoryService, auth = authService}: Ap
                 : "No extension"}
           </button>
         )}
-        <button className="auth-corner__button auth-corner__button--secondary" onClick={view === "settings" ? handleCloseSettings : handleOpenSettings} type="button">
-          {view === "settings" ? "Back" : "Settings"}
+        <button
+          aria-label={view === "settings" ? "Close settings" : "Open settings"}
+          className="auth-corner__button auth-corner__button--secondary auth-corner__button--icon"
+          onClick={view === "settings" ? handleCloseSettings : handleOpenSettings}
+          type="button"
+        >
+          {view === "settings" ? <BackIcon /> : <SettingsIcon />}
         </button>
       </div>
       {view === "settings" ? (

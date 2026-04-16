@@ -76,6 +76,9 @@ input {
 }
 
 .auth-corner__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 30px;
   padding: 0 12px;
   border: 1px solid rgba(45, 26, 10, 0.08);
@@ -89,12 +92,28 @@ input {
     transform 160ms ease,
     box-shadow 160ms ease,
     opacity 160ms ease;
+  line-height: 1;
+}
+
+.auth-corner__button--icon {
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
 }
 
 .auth-corner__button--secondary {
   background: rgba(45, 26, 10, 0.06);
   color: rgba(37, 25, 13, 0.68);
   box-shadow: none;
+}
+
+.auth-corner__icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  flex: none;
+  overflow: visible;
 }
 
 .auth-corner__button:hover:not(:disabled) {
