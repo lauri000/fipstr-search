@@ -339,6 +339,7 @@ export default function App({service = directoryService, auth = authService}: Ap
         <>
           <section className="search-shell" aria-label="Search FIPS nodes">
             <p className="brand brand--wordmark">
+              <img alt="" aria-hidden="true" className="brand__mark" src="/fipstr-mark.svg" />
               <span className="brand__label">fipstr</span>
               <span className="brand__pill">search</span>
             </p>

@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "brand:assets": "bash scripts/generate-brand-assets.sh",
     "preview": "vite preview",
     "test": "vitest run",
     "publish:demo": "node scripts/publish-demo-profiles.mjs"

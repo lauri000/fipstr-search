@@ -175,34 +175,40 @@ input {
 }
 
 .brand--wordmark {
-  position: relative;
   display: inline-flex;
   justify-self: center;
   width: fit-content;
   align-items: flex-end;
-  padding-right: 84px;
+  gap: 0.16em;
+}
+
+.brand__mark {
+  width: 0.9em;
+  height: 0.9em;
+  flex: none;
 }
 
 .brand__label {
   display: inline-block;
+  line-height: 0.9;
 }
 
 .brand__pill {
-  position: absolute;
-  right: 0;
-  bottom: 0.55em;
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  padding: 0 12px;
+  align-self: flex-end;
+  min-height: 1.55em;
+  padding: 0 0.72em;
   border-radius: 999px;
   background: #0e665c;
   color: #fffaf4;
   font-size: 0.24em;
   font-weight: 700;
   letter-spacing: 0.08em;
+  line-height: 1;
   text-transform: lowercase;
-  transform: rotate(-11deg);
+  transform: translateY(-0.22em) rotate(-11deg);
+  transform-origin: center;
   box-shadow: 0 10px 24px rgba(14, 102, 92, 0.22);
 }
 
@@ -213,7 +219,6 @@ input {
 
 .app--active .brand--wordmark {
   justify-self: start;
-  padding-right: 72px;
 }
 
 .brand--settings {
@@ -489,14 +494,8 @@ input {
     font-size: 1rem;
   }
 
-  .brand--wordmark {
-    padding-right: 68px;
-  }
-
   .brand__pill {
-    min-height: 24px;
-    padding: 0 10px;
-    bottom: 0.5em;
+    min-height: 1.55em;
   }
 
   .result-card {
