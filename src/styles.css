@@ -162,6 +162,10 @@ input {
   gap: 14px;
 }
 
+.search-form {
+  width: 100%;
+}
+
 .brand {
   margin: 0;
   text-align: center;

@@ -1,5 +1,5 @@
 import {fireEvent, render, screen} from "@testing-library/react"
-import {describe, expect, it, vi} from "vitest"
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 
 import App from "./App"
 import type {AuthRuntime, AuthSnapshot, DirectoryRuntime, DirectorySearchResult, DirectorySnapshot, PublishSigner} from "./lib/types"
@@ -71,6 +71,14 @@ function makeAuth(snapshotOverride: Partial<AuthSnapshot> = {}): AuthRuntime {
 }
 
 describe("App", () => {
+  beforeEach(() => {
+    window.history.replaceState({}, "", "/")
+  })
+
+  afterEach(() => {
+    window.history.replaceState({}, "", "/")
+  })
+
   it("opens settings and saves relay updates through the service", () => {
     const updateRelays = vi.fn(async () => undefined)
     render(<App auth={makeAuth()} service={makeService(updateRelays)} />)
@@ -100,6 +108,34 @@ describe("App", () => {
     expect(screen.getByText("3 announced")).toBeInTheDocument()
     expect(screen.getByText("You announced this")).toBeInTheDocument()
     expect(screen.getByRole("button", {name: "Announce again"})).toBeInTheDocument()
+  })
+
+  it("hydrates the search box from the q query param and keeps the URL in sync", () => {
+    window.history.replaceState({}, "", "/?q=alpha")
+
+    render(<App auth={makeAuth()} service={makeService()} />)
+
+    const input = screen.getByRole("searchbox", {name: /search fips discovery announcements/i})
+
+    expect(input).toHaveValue("alpha")
+    expect(screen.getByText("Alpha Relay")).toBeInTheDocument()
+
+    fireEvent.change(input, {
+      target: {value: "beta relay"},
+    })
+
+    expect(window.location.search).toBe("?q=beta+relay")
+  })
+
+  it("updates the search query when browser history changes", () => {
+    render(<App auth={makeAuth()} service={makeService()} />)
+
+    const input = screen.getByRole("searchbox", {name: /search fips discovery announcements/i})
+
+    window.history.replaceState({}, "", "/?q=alpha")
+    fireEvent.popState(window)
+
+    expect(input).toHaveValue("alpha")
   })
 
   it("prompts logged-out users to connect before announcing", () => {

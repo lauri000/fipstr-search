@@ -24,6 +24,8 @@ type FlashMessage = {
   text: string
 }
 
+const SEARCH_PARAM = "q"
+
 function snippet(text: string, maxLength = 180) {
   if (text.length <= maxLength) {
     return text
@@ -46,6 +48,27 @@ function errorMessage(error: unknown) {
   }
 
   return "Unknown publishing error"
+}
+
+function readQueryFromLocation() {
+  if (typeof window === "undefined") {
+    return ""
+  }
+
+  return new URL(window.location.href).searchParams.get(SEARCH_PARAM) ?? ""
+}
+
+function nextSearchUrl(query: string) {
+  const url = new URL(window.location.href)
+  const normalizedQuery = query.trim()
+
+  if (normalizedQuery) {
+    url.searchParams.set(SEARCH_PARAM, normalizedQuery)
+  } else {
+    url.searchParams.delete(SEARCH_PARAM)
+  }
+
+  return `${url.pathname}${url.search}${url.hash}`
 }
 
 function SettingsIcon() {
@@ -92,7 +115,7 @@ function LogoutIcon() {
 
 export default function App({service = directoryService, auth = authService}: AppProps) {
   const [view, setView] = useState<"search" | "settings">("search")
-  const [query, setQuery] = useState("")
+  const [query, setQuery] = useState(readQueryFromLocation)
   const [relayDraft, setRelayDraft] = useState("")
   const [savingRelays, setSavingRelays] = useState(false)
   const [publishingTarget, setPublishingTarget] = useState<string | null>(null)
@@ -111,12 +134,42 @@ export default function App({service = directoryService, auth = authService}: Ap
     return stop
   }, [service])
 
+  useEffect(() => {
+    function handlePopState() {
+      startTransition(() => {
+        setQuery((current) => {
+          const next = readQueryFromLocation()
+          return current === next ? current : next
+        })
+      })
+    }
+
+    window.addEventListener("popstate", handlePopState)
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState)
+    }
+  }, [])
+
+  useEffect(() => {
+    const nextUrl = nextSearchUrl(query)
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
+
+    if (currentUrl !== nextUrl) {
+      window.history.replaceState(window.history.state, "", nextUrl)
+    }
+  }, [query])
+
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     const nextValue = event.target.value
 
     startTransition(() => {
       setQuery(nextValue)
     })
+  }
+
+  function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
   }
 
   async function handleExtensionLogin() {
@@ -289,20 +342,22 @@ export default function App({service = directoryService, auth = authService}: Ap
               <span className="brand__label">fipstr</span>
               <span className="brand__pill">search</span>
             </p>
-            <label className="visually-hidden" htmlFor="node-search">
-              Search FIPS discovery announcements
-            </label>
-            <input
-              id="node-search"
-              autoComplete="off"
-              autoFocus
-              className="search-input"
-              name="node-search"
-              onChange={handleChange}
-              placeholder="Search by alias, service, transport, or npub"
-              type="search"
-              value={query}
-            />
+            <form action="/" className="search-form" method="get" onSubmit={handleSearchSubmit} role="search">
+              <label className="visually-hidden" htmlFor="node-search">
+                Search FIPS discovery announcements
+              </label>
+              <input
+                id="node-search"
+                autoComplete="off"
+                autoFocus
+                className="search-input"
+                name={SEARCH_PARAM}
+                onChange={handleChange}
+                placeholder="Search by alias, service, transport, or npub"
+                type="search"
+                value={query}
+              />
+            </form>
             <p className="status">{statusText}</p>
             {snapshot.error ? <p className="status status--error">{snapshot.error}</p> : null}
             {authSnapshot.error ? <p className="status status--error">{authSnapshot.error}</p> : null}
