@@ -6,6 +6,9 @@ declare global {
       getPublicKey: () => Promise<string>
       signEvent: (event: Omit<Event, "id" | "sig"> & Partial<Pick<Event, "id" | "sig">>) => Promise<Event>
     }
+    wrappedJSObject?: {
+      nostr?: Window["nostr"]
+    }
   }
 }
 

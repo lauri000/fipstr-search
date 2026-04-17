@@ -3,9 +3,15 @@ import {finalizeEvent, generateSecretKey, getPublicKey, nip19} from "nostr-tools
 
 import {AuthService} from "./authService"
 
+type NostrAwareGlobal = typeof globalThis & {
+  nostr?: Window["nostr"]
+}
+
 describe("AuthService", () => {
   beforeEach(() => {
     delete window.nostr
+    delete window.wrappedJSObject
+    delete (globalThis as NostrAwareGlobal).nostr
   })
 
   afterEach(() => {
@@ -20,6 +26,20 @@ describe("AuthService", () => {
     expect(auth.getSnapshot().status).toBe("anonymous")
     expect(auth.getSnapshot().error).toBe("No NIP-07 signer was detected in this browser.")
     expect(auth.getSigner()).toBeNull()
+  })
+
+  it("shows a Firefox-specific hint when no extension is detected", async () => {
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      userAgent: "Mozilla/5.0 Firefox/138.0",
+    })
+
+    const auth = new AuthService()
+
+    await auth.connectWithExtension()
+
+    expect(auth.getSnapshot().error).toContain("nos2x-fox")
+    vi.unstubAllGlobals()
   })
 
   it("uses a NIP-07 extension signer when available and forgets it on logout", async () => {
@@ -76,6 +96,24 @@ describe("AuthService", () => {
     await vi.advanceTimersByTimeAsync(600)
 
     expect(auth.getSnapshot().extensionAvailable).toBe(true)
+  })
+
+  it("recognizes a signer injected on wrappedJSObject", async () => {
+    const auth = new AuthService()
+    const secretKey = generateSecretKey()
+    const pubkey = getPublicKey(secretKey)
+
+    window.wrappedJSObject = {
+      nostr: {
+        getPublicKey: vi.fn(async () => pubkey),
+        signEvent: vi.fn(async (event) => finalizeEvent(event, secretKey)),
+      },
+    }
+
+    await auth.connectWithExtension()
+
+    expect(auth.getSnapshot().status).toBe("authenticated")
+    expect(auth.getSnapshot().pubkey).toBe(pubkey)
   })
 
   it("waits briefly for a late-injected extension before failing", async () => {

@@ -2,17 +2,52 @@ import {nip19, verifyEvent} from "nostr-tools"
 
 import type {AuthRuntime, AuthSnapshot, PublishSigner, UnsignedDiscoveryEvent} from "./types"
 
-const EXTENSION_WAIT_MS = 1_500
+const EXTENSION_WAIT_MS = 4_000
 const EXTENSION_POLL_MS = 250
-const EXTENSION_MONITOR_MS = 10_000
+const EXTENSION_MONITOR_MS = 20_000
+
+const DEFAULT_MISSING_EXTENSION_ERROR = "No NIP-07 signer was detected in this browser."
+
+type NostrExtension = NonNullable<Window["nostr"]>
+type NostrAwareGlobal = typeof globalThis & {
+  nostr?: Window["nostr"]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function hasSignerMethods(value: unknown): value is NostrExtension {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  try {
+    return typeof Reflect.get(value, "getPublicKey") === "function" && typeof Reflect.get(value, "signEvent") === "function"
+  } catch {
+    return false
+  }
+}
+
+function firefoxMissingExtensionError() {
+  if (typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent)) {
+    return `${DEFAULT_MISSING_EXTENSION_ERROR} If you're using Firefox, install nos2x-fox or reload after granting this site extension access.`
+  }
+
+  return DEFAULT_MISSING_EXTENSION_ERROR
+}
 
 function getNostrExtension() {
-  if (
-    typeof window !== "undefined" &&
-    typeof window.nostr?.getPublicKey === "function" &&
-    typeof window.nostr?.signEvent === "function"
-  ) {
-    return window.nostr
+  if (typeof window === "undefined") {
+    return undefined
+  }
+
+  const candidates = [window.nostr, window.wrappedJSObject?.nostr, (globalThis as NostrAwareGlobal).nostr]
+
+  for (const candidate of candidates) {
+    if (hasSignerMethods(candidate)) {
+      return candidate
+    }
   }
 
   return undefined
@@ -71,7 +106,7 @@ export class AuthService implements AuthRuntime {
     if (!extension) {
       this.setState({
         status: "anonymous",
-        error: "No NIP-07 signer was detected in this browser.",
+        error: firefoxMissingExtensionError(),
       })
       return
     }
@@ -166,7 +201,7 @@ export class AuthService implements AuthRuntime {
   private refreshExtensionAvailability() {
     const available = Boolean(getNostrExtension())
     const nextError =
-      available && this.state.status === "anonymous" && this.state.error === "No NIP-07 signer was detected in this browser."
+      available && this.state.status === "anonymous" && this.state.error?.startsWith(DEFAULT_MISSING_EXTENSION_ERROR)
         ? undefined
         : this.state.error
 
