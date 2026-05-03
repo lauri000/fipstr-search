@@ -1,38 +1,7 @@
-import {beforeEach, describe, expect, it} from "vitest"
+import {describe, expect, it} from "vitest"
 
-import {clearDirectoryState, loadDirectoryState, saveDirectoryState} from "./db"
-import {buildSearchIndex, loadSearchIndex, searchDirectory, serializeSearchIndex} from "./search"
-import type {AnnouncementRecord, DirectoryNodeRecord, SyncState} from "./types"
-
-function announcement(overrides: Partial<AnnouncementRecord> = {}): AnnouncementRecord {
-  const authorPubkey = overrides.authorPubkey ?? "a".repeat(64)
-  const targetNpub = overrides.targetNpub ?? "npub1alpharelaysample0000000000000000000000000000000000000000000"
-
-  return {
-    id: overrides.id ?? `${authorPubkey}:${targetNpub}`,
-    authorPubkey,
-    authorNpub: overrides.authorNpub ?? "npub1announcer0000000000000000000000000000000000000000000000000",
-    targetNpub,
-    eventId: overrides.eventId ?? "1".repeat(64),
-    createdAt: overrides.createdAt ?? 10,
-    discriminator: overrides.discriminator ?? "node-a",
-    alias: overrides.alias ?? "Alpha Relay",
-    content: overrides.content ?? "",
-    summary: overrides.summary ?? "Services: http:80 · Transports: udp 172.20.0.10:2121",
-    transports: overrides.transports ?? [{protocol: "udp", addr: "172.20.0.10", port: "2121"}],
-    services: overrides.services ?? [{name: "http", port: "80"}],
-    tags:
-      overrides.tags ??
-      [
-        ["d", "node-a"],
-        ["npub", targetNpub],
-        ["alias", "Alpha Relay"],
-        ["transport", "udp", "172.20.0.10", "2121"],
-        ["service", "http", "80"],
-      ],
-    url: overrides.url ?? `http://${targetNpub}.fips/`,
-  }
-}
+import {buildSearchIndex, searchDirectory} from "./search"
+import type {DirectoryNodeRecord} from "./types"
 
 function node(overrides: Partial<DirectoryNodeRecord> = {}): DirectoryNodeRecord {
   const npub = overrides.npub ?? "npub1alpharelaysample0000000000000000000000000000000000000000000"
@@ -63,10 +32,6 @@ function node(overrides: Partial<DirectoryNodeRecord> = {}): DirectoryNodeRecord
 }
 
 describe("search index", () => {
-  beforeEach(async () => {
-    await clearDirectoryState()
-  })
-
   it("matches alias, service, transport, summary text, and npub", () => {
     const alpha = node()
     const index = buildSearchIndex([alpha])
@@ -98,22 +63,10 @@ describe("search index", () => {
     expect(results[1]?.npub).toBe(highScoreLowCount.npub)
   })
 
-  it("round-trips a serialized MiniSearch index through IndexedDB", async () => {
-    const alphaNode = node()
-    const alphaAnnouncement = announcement({targetNpub: alphaNode.npub})
-    const index = buildSearchIndex([alphaNode])
-    const syncState: SyncState = {
-      lastSyncAt: 123,
-    }
+  it("returns no results for blank queries", () => {
+    const index = buildSearchIndex([node()])
 
-    await saveDirectoryState([alphaAnnouncement], [alphaNode], serializeSearchIndex(index, 1), syncState)
-
-    const savedState = await loadDirectoryState()
-    const hydrated = loadSearchIndex(savedState.searchIndex)
-
-    expect(savedState.announcements).toHaveLength(1)
-    expect(savedState.nodes).toHaveLength(1)
-    expect(searchDirectory(hydrated, "172.20.0.10")).toHaveLength(1)
-    expect(searchDirectory(hydrated, alphaNode.npub)[0]?.url).toBe(alphaNode.url)
+    expect(searchDirectory(index, "")).toEqual([])
+    expect(searchDirectory(index, "   ")).toEqual([])
   })
 })

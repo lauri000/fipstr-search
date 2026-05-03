@@ -1,6 +1,6 @@
-import MiniSearch, {type AsPlainObject, type Options} from "minisearch"
+import MiniSearch, {type Options} from "minisearch"
 
-import {SEARCH_INDEX_VERSION, type DirectoryNodeRecord, type SearchIndexState, type SearchDocument} from "./types"
+import type {DirectoryNodeRecord, SearchDocument} from "./types"
 import {toSearchDocument} from "./normalize"
 
 export const SEARCH_OPTIONS = {
@@ -34,27 +34,6 @@ export function createSearchIndex(documents: SearchDocument[] = []) {
 
 export function buildSearchIndex(nodes: Iterable<DirectoryNodeRecord>) {
   return createSearchIndex(Array.from(nodes, toSearchDocument))
-}
-
-export function serializeSearchIndex(index: MiniSearch<SearchDocument>, docCount: number): SearchIndexState {
-  return {
-    version: SEARCH_INDEX_VERSION,
-    indexJson: index.toJSON(),
-    updatedAt: Date.now(),
-    docCount,
-  }
-}
-
-export function loadSearchIndex(savedState?: SearchIndexState) {
-  if (!savedState || savedState.version !== SEARCH_INDEX_VERSION) {
-    return createSearchIndex()
-  }
-
-  try {
-    return MiniSearch.loadJS(savedState.indexJson as AsPlainObject, SEARCH_OPTIONS)
-  } catch {
-    return createSearchIndex()
-  }
 }
 
 function sortResults(a: StoredSearchResult, b: StoredSearchResult) {

@@ -1,20 +1,13 @@
 import Dexie, {type Table} from "dexie"
 
-import type {
-  AnnouncementRecord,
-  DirectoryNodeRecord,
-  MetaRecord,
-  SearchIndexState,
-  SyncState,
-} from "./types"
+import type {AnnouncementRecord, MetaRecord, SyncState} from "./types"
 
-export const SEARCH_INDEX_META_KEY = "search-index"
+const SEARCH_INDEX_META_KEY = "search-index"
 export const SYNC_STATE_META_KEY = "sync-state"
 export const RELAYS_META_KEY = "relays"
 
 class DirectoryDatabase extends Dexie {
   announcements!: Table<AnnouncementRecord, string>
-  nodes!: Table<DirectoryNodeRecord, string>
   meta!: Table<MetaRecord, string>
 
   constructor() {
@@ -30,24 +23,26 @@ class DirectoryDatabase extends Dexie {
       nodes: "&npub, announcementCount, alias",
       meta: "&key",
     })
+
+    this.version(3).stores({
+      announcements: "&id, targetNpub, authorPubkey, createdAt",
+      nodes: null,
+      meta: "&key",
+    })
   }
 }
 
 export const db = new DirectoryDatabase()
 
 export async function loadDirectoryState() {
-  const [announcements, nodes, searchIndexRecord, syncStateRecord, relaysRecord] = await Promise.all([
+  const [announcements, syncStateRecord, relaysRecord] = await Promise.all([
     db.announcements.toArray(),
-    db.nodes.toArray(),
-    db.meta.get(SEARCH_INDEX_META_KEY),
     db.meta.get(SYNC_STATE_META_KEY),
     db.meta.get(RELAYS_META_KEY),
   ])
 
   return {
     announcements,
-    nodes,
-    searchIndex: searchIndexRecord?.value as SearchIndexState | undefined,
     syncState: syncStateRecord?.value as SyncState | undefined,
     relays: relaysRecord?.value as string[] | undefined,
   }
@@ -55,35 +50,25 @@ export async function loadDirectoryState() {
 
 export async function saveDirectoryState(
   announcements: AnnouncementRecord[],
-  nodes: DirectoryNodeRecord[],
-  searchIndex: SearchIndexState,
   syncState: SyncState,
 ) {
   const updatedAt = Date.now()
 
-  await db.transaction("rw", db.announcements, db.nodes, db.meta, async () => {
+  await db.transaction("rw", db.announcements, db.meta, async () => {
     await db.announcements.clear()
-    await db.nodes.clear()
 
     if (announcements.length > 0) {
       await db.announcements.bulkPut(announcements)
     }
 
-    if (nodes.length > 0) {
-      await db.nodes.bulkPut(nodes)
-    }
-
-    await db.meta.bulkPut([
-      {key: SEARCH_INDEX_META_KEY, value: searchIndex, updatedAt},
-      {key: SYNC_STATE_META_KEY, value: syncState, updatedAt},
-    ])
+    await db.meta.delete(SEARCH_INDEX_META_KEY)
+    await db.meta.put({key: SYNC_STATE_META_KEY, value: syncState, updatedAt})
   })
 }
 
 export async function clearDirectoryState() {
-  await db.transaction("rw", db.announcements, db.nodes, db.meta, async () => {
+  await db.transaction("rw", db.announcements, db.meta, async () => {
     await db.announcements.clear()
-    await db.nodes.clear()
     await db.meta.clear()
   })
 }

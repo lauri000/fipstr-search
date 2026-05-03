@@ -1,7 +1,6 @@
 import type {Event} from "nostr-tools"
 
 export const DISCOVERY_KIND = 37_195
-export const SEARCH_INDEX_VERSION = 3
 
 export type DiscoveryTransport = {
   protocol: string
@@ -74,13 +73,6 @@ export type DirectorySnapshot = {
   relays: string[]
   error?: string
   lastSyncAt?: number
-}
-
-export type SearchIndexState = {
-  version: number
-  indexJson: unknown
-  updatedAt: number
-  docCount: number
 }
 
 export type SyncState = {

@@ -1,8 +1,9 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 import {finalizeEvent, generateSecretKey, getPublicKey, nip19, type Event} from "nostr-tools"
 
-import {clearDirectoryState, loadRelaySettings} from "./db"
+import {clearDirectoryState, loadRelaySettings, saveDirectoryState} from "./db"
 import {DirectoryService} from "./directoryService"
+import {normalizeAnnouncementEvent} from "./normalize"
 import type {PublishSigner} from "./types"
 
 function flush() {
@@ -151,6 +152,56 @@ describe("DirectoryService", () => {
       expect.any(Object),
       expect.objectContaining({label: "fips-discovery"}),
     )
+
+    stop()
+  })
+
+  it("rebuilds searchable nodes from cached announcements when relay sync fails", async () => {
+    const targetSecretKey = generateSecretKey()
+    const targetPubkey = getPublicKey(targetSecretKey)
+    const targetNpub = nip19.npubEncode(targetPubkey)
+    const cachedEvent = finalizeEvent(
+      {
+        kind: 37195,
+        created_at: 10,
+        tags: [
+          ["d", "cached-node"],
+          ["npub", targetNpub],
+          ["alias", "Cached Relay"],
+          ["service", "http", "80"],
+        ],
+        content: "",
+      },
+      targetSecretKey,
+    )
+    const cachedAnnouncement = normalizeAnnouncementEvent(cachedEvent)
+
+    expect(cachedAnnouncement).not.toBeNull()
+    await saveDirectoryState([cachedAnnouncement!], {lastSyncAt: 123})
+
+    const fakePool = {
+      destroy: vi.fn(),
+      publish: vi.fn(() => [Promise.resolve("")]),
+      querySync: vi.fn(async () => {
+        throw new Error("relay unavailable")
+      }),
+      subscribe: vi.fn(() => ({
+        close: () => undefined,
+      })),
+    }
+
+    const service = new DirectoryService(["wss://relay.one/"], fakePool as never)
+    const stop = service.start()
+    await waitForBootstrap(service)
+
+    expect(service.getSnapshot()).toEqual(
+      expect.objectContaining({
+        nodesCount: 1,
+        error: "relay unavailable",
+      }),
+    )
+    expect(service.search("Cached Relay")).toHaveLength(1)
+    expect(fakePool.subscribe).not.toHaveBeenCalled()
 
     stop()
   })

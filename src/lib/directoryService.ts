@@ -3,7 +3,7 @@ import {SimplePool, verifyEvent, type Event, type Filter} from "nostr-tools"
 import {loadDirectoryState, saveDirectoryState, saveRelaySettings} from "./db"
 import {DEFAULT_RELAYS} from "./defaultRelays"
 import {applyAnnouncementEvent, buildDirectoryNodes, takeLatestAnnouncements} from "./normalize"
-import {buildSearchIndex, loadSearchIndex, searchDirectory, serializeSearchIndex} from "./search"
+import {buildSearchIndex, searchDirectory} from "./search"
 import {
   DISCOVERY_KIND,
   type AnnouncementRecord,
@@ -232,22 +232,12 @@ export class DirectoryService implements DirectoryRuntime {
   }
 
   private async hydrateFromCache() {
-    const {announcements, nodes, searchIndex, syncState, relays} = await loadDirectoryState()
+    const {announcements, syncState, relays} = await loadDirectoryState()
 
     this.relays = relays && relays.length > 0 ? normalizeRelays(relays) : normalizeRelays(DEFAULT_RELAYS)
 
     this.announcements = new Map(announcements.map((announcement) => [announcement.id, announcement]))
-    this.nodes = new Map(nodes.map((node) => [node.npub, node]))
-
-    if (this.nodes.size === 0 && this.announcements.size > 0) {
-      this.rebuildNodesAndIndex()
-    } else {
-      const cachedIndex = loadSearchIndex(searchIndex)
-      this.searchIndex =
-        searchIndex && searchIndex.docCount === this.nodes.size
-          ? cachedIndex
-          : buildSearchIndex(this.nodes.values())
-    }
+    this.rebuildNodesAndIndex()
 
     this.setState({
       hydrated: true,
@@ -387,8 +377,6 @@ export class DirectoryService implements DirectoryRuntime {
 
     await saveDirectoryState(
       Array.from(this.announcements.values()),
-      Array.from(this.nodes.values()),
-      serializeSearchIndex(this.searchIndex, this.nodes.size),
       syncState,
     )
   }
