@@ -46,12 +46,51 @@ function makeEvent({
   }
 }
 
+function makeOverlayEvent({
+  pubkey = hex("a"),
+  id = hex("f"),
+  created_at = 100,
+  tags,
+  content,
+  expiresAt = Math.floor(Date.now() / 1000) + 3600,
+}: Partial<Event> & {expiresAt?: number} = {}): Event {
+  return {
+    kind: 37195,
+    pubkey,
+    id,
+    sig: hex("e"),
+    created_at,
+    tags:
+      tags ??
+      [
+        ["d", "fips-overlay-v1"],
+        ["protocol", "fips-overlay-v1"],
+        ["version", "1"],
+        ["expiration", String(expiresAt)],
+      ],
+    content:
+      content ??
+      JSON.stringify({
+        identifier: "fips-overlay-v1",
+        version: 1,
+        endpoints: [
+          {transport: "udp", addr: "203.0.113.45:2121"},
+          {transport: "udp", addr: "nat"},
+          {transport: "tor", addr: "relayexample.onion:8443"},
+        ],
+        signalRelays: ["wss://relay.damus.io"],
+        stunServers: ["stun:stun.l.google.com:19302"],
+      }),
+  }
+}
+
 describe("normalizeAnnouncementEvent", () => {
   it("turns a discovery announcement into an announcement record", () => {
     const event = makeEvent()
     const record = normalizeAnnouncementEvent(event)
 
     expect(record).not.toBeNull()
+    expect(record?.source).toBe("announcement")
     expect(record?.targetNpub).toBe(npubFor(event.pubkey))
     expect(record?.id).toBe(announcementKey(event.pubkey, npubFor(event.pubkey)))
     expect(record?.summary).toContain("Services: http:80")
@@ -61,6 +100,53 @@ describe("normalizeAnnouncementEvent", () => {
     const record = normalizeAnnouncementEvent(makeEvent({tags: [["d", "node-a"], ["alias", "Alpha Relay"]]}))
 
     expect(record).toBeNull()
+  })
+
+  it("turns a valid FIPS overlay advert into an overlay record", () => {
+    const event = makeOverlayEvent()
+    const record = normalizeAnnouncementEvent(event)
+
+    expect(record).not.toBeNull()
+    expect(record?.source).toBe("overlay")
+    expect(record?.targetNpub).toBe(npubFor(event.pubkey))
+    expect(record?.id).toBe(announcementKey(event.pubkey, npubFor(event.pubkey), "overlay"))
+    expect(record?.overlay?.endpoints).toHaveLength(3)
+    expect(record?.overlay?.signalRelays).toEqual(["wss://relay.damus.io"])
+    expect(record?.overlay?.stunServers).toEqual(["stun:stun.l.google.com:19302"])
+    expect(record?.summary).toContain("Overlay endpoints: UDP 203.0.113.45:2121")
+  })
+
+  it("ignores malformed or expired FIPS overlay adverts", () => {
+    const currentSecs = 1_000
+    const cases = [
+      makeOverlayEvent({content: "{not json"}),
+      makeOverlayEvent({
+        content: JSON.stringify({
+          identifier: "wrong",
+          version: 1,
+          endpoints: [{transport: "udp", addr: "203.0.113.45:2121"}],
+        }),
+      }),
+      makeOverlayEvent({
+        content: JSON.stringify({
+          identifier: "fips-overlay-v1",
+          version: 2,
+          endpoints: [{transport: "udp", addr: "203.0.113.45:2121"}],
+        }),
+      }),
+      makeOverlayEvent({
+        content: JSON.stringify({
+          identifier: "fips-overlay-v1",
+          version: 1,
+          endpoints: [],
+        }),
+      }),
+      makeOverlayEvent({expiresAt: 999}),
+    ]
+
+    for (const event of cases) {
+      expect(normalizeAnnouncementEvent(event, currentSecs)).toBeNull()
+    }
   })
 })
 
@@ -161,5 +247,48 @@ describe("grouped discovery aggregation", () => {
 
     expect(latestAnnouncements.size).toBe(1)
     expect(record?.eventId).toBe(newest.id)
+  })
+
+  it("builds an overlay-only node from a FIPS overlay advert", () => {
+    const event = makeOverlayEvent({pubkey: hex("a")})
+    const announcements = takeLatestAnnouncements([event])
+    const targetNpub = npubFor(event.pubkey)
+    const node = buildDirectoryNodes(announcements.values()).get(targetNpub)
+
+    expect(node?.hasAnnouncement).toBe(false)
+    expect(node?.hasOverlayAdvert).toBe(true)
+    expect(node?.canReannounce).toBe(false)
+    expect(node?.announcementCount).toBe(0)
+    expect(node?.badges).toEqual(["self-advert", "udp", "tor", "nat", "stun"])
+    expect(node?.summary).toContain("Overlay endpoints: UDP 203.0.113.45:2121")
+  })
+
+  it("merges a human announcement and overlay advert for the same node", () => {
+    const pubkey = hex("a")
+    const targetNpub = npubFor(pubkey)
+    const announcement = makeEvent({pubkey, targetNpub, id: hex("1"), created_at: 10})
+    const overlay = makeOverlayEvent({pubkey, id: hex("2"), created_at: 11})
+    const announcements = takeLatestAnnouncements([announcement, overlay])
+    const node = buildDirectoryNodes(announcements.values()).get(targetNpub)
+
+    expect(announcements.size).toBe(2)
+    expect(node?.hasAnnouncement).toBe(true)
+    expect(node?.hasOverlayAdvert).toBe(true)
+    expect(node?.canReannounce).toBe(true)
+    expect(getNodeTitle(node!)).toBe("Alpha Relay")
+    expect(node?.summary).toContain("Services: http:80")
+    expect(node?.summary).toContain("Overlay endpoints")
+    expect(node?.badges).toEqual(["announcement", "self-advert", "udp", "tor", "nat", "stun"])
+  })
+
+  it("keeps self-announcements and self-adverts from colliding in the cache key", () => {
+    const pubkey = hex("c")
+    const targetNpub = npubFor(pubkey)
+    const announcement = makeEvent({pubkey, targetNpub, id: hex("a"), created_at: 10})
+    const overlay = makeOverlayEvent({pubkey, id: hex("b"), created_at: 11})
+    const announcements = takeLatestAnnouncements([announcement, overlay])
+
+    expect(announcements.has(announcementKey(pubkey, targetNpub, "announcement"))).toBe(true)
+    expect(announcements.has(announcementKey(pubkey, targetNpub, "overlay"))).toBe(true)
   })
 })

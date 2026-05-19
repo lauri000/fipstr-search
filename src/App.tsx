@@ -369,12 +369,14 @@ export default function App({service = directoryService, auth = authService}: Ap
             <section className="results" aria-label="Search results">
               {results.length > 0 ? (
                 results.map((result) => {
-                  const announceLabel =
-                    authSnapshot.status !== "authenticated"
+                  const announceLabel = result.canReannounce
+                    ? authSnapshot.status !== "authenticated"
                       ? "Connect to announce"
                       : result.announcedByViewer
                         ? "Announce again"
                         : "Re-announce"
+                    : undefined
+                  const sourceLabel = result.canReannounce ? `${result.announcementCount} announced` : "self-advert"
 
                   return (
                     <article className="result-card" key={result.id}>
@@ -382,23 +384,34 @@ export default function App({service = directoryService, auth = authService}: Ap
                         <a className="result-card__host" href={result.url}>
                           {result.host}
                         </a>
-                        <p className="result-card__score">{result.announcementCount} announced</p>
+                        <p className="result-card__score">{sourceLabel}</p>
                       </div>
                       <a className="result-card__title-link" href={result.url}>
                         <h2 className="result-card__title">{result.title}</h2>
                       </a>
                       {result.summary ? <p className="result-card__about">{snippet(result.summary)}</p> : null}
-                      <div className="result-card__footer">
-                        {result.announcedByViewer ? <p className="result-card__badge">You announced this</p> : <span />}
-                        <button
-                          className="announce-button"
-                          disabled={publishingTarget === result.npub}
-                          onClick={() => void handleReannounce(result.npub)}
-                          type="button"
-                        >
-                          {publishingTarget === result.npub ? "Publishing..." : announceLabel}
-                        </button>
-                      </div>
+                      {result.badges.length > 0 ? (
+                        <div className="result-card__badges" aria-label="Result metadata">
+                          {result.badges.map((badge) => (
+                            <span className="result-card__badge" key={badge}>
+                              {badge}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                      {result.canReannounce ? (
+                        <div className="result-card__footer">
+                          {result.announcedByViewer ? <p className="result-card__viewer-badge">You announced this</p> : <span />}
+                          <button
+                            className="announce-button"
+                            disabled={publishingTarget === result.npub}
+                            onClick={() => void handleReannounce(result.npub)}
+                            type="button"
+                          >
+                            {publishingTarget === result.npub ? "Publishing..." : announceLabel}
+                          </button>
+                        </div>
+                      ) : null}
                     </article>
                   )
                 })

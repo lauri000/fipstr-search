@@ -4,8 +4,24 @@ import type {DirectoryNodeRecord, SearchDocument} from "./types"
 import {toSearchDocument} from "./normalize"
 
 export const SEARCH_OPTIONS = {
-  fields: ["title", "alias", "summary", "services", "transports", "npub"],
-  storeFields: ["title", "alias", "summary", "services", "transports", "npub", "host", "url", "announcementCount"],
+  fields: ["title", "alias", "summary", "services", "transports", "npub", "overlayEndpoints", "overlayRelays", "capabilities", "protocol"],
+  storeFields: [
+    "title",
+    "alias",
+    "summary",
+    "services",
+    "transports",
+    "npub",
+    "host",
+    "url",
+    "announcementCount",
+    "overlayEndpoints",
+    "overlayRelays",
+    "capabilities",
+    "protocol",
+    "canReannounce",
+    "badges",
+  ],
   searchOptions: {
     boost: {
       title: 4,
@@ -13,6 +29,10 @@ export const SEARCH_OPTIONS = {
       services: 3,
       npub: 2,
       transports: 2,
+      overlayEndpoints: 2,
+      capabilities: 2,
+      overlayRelays: 1,
+      protocol: 1,
     },
     prefix: true,
   },
@@ -70,6 +90,10 @@ export function searchDirectory(index: MiniSearch<SearchDocument>, query: string
       services: 3,
       npub: 2,
       transports: 2,
+      overlayEndpoints: 2,
+      capabilities: 2,
+      overlayRelays: 1,
+      protocol: 1,
     },
   })
 

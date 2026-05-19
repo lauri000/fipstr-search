@@ -2,7 +2,7 @@ import {SimplePool, verifyEvent, type Event, type Filter} from "nostr-tools"
 
 import {loadDirectoryState, saveDirectoryState, saveRelaySettings} from "./db"
 import {DEFAULT_RELAYS} from "./defaultRelays"
-import {applyAnnouncementEvent, buildDirectoryNodes, takeLatestAnnouncements} from "./normalize"
+import {applyAnnouncementEvent, buildDirectoryNodes, normalizeCachedAnnouncementRecord, takeLatestAnnouncements} from "./normalize"
 import {buildSearchIndex, searchDirectory} from "./search"
 import {
   DISCOVERY_KIND,
@@ -125,6 +125,10 @@ export class DirectoryService implements DirectoryRuntime {
       throw new Error("This node is not currently available for re-announcement.")
     }
 
+    if (!node.canReannounce) {
+      throw new Error("Machine-authored overlay adverts cannot be re-announced.")
+    }
+
     const signedEvent = await signer.signEvent({
       kind: DISCOVERY_KIND,
       created_at: Math.floor(Date.now() / 1000),
@@ -236,7 +240,12 @@ export class DirectoryService implements DirectoryRuntime {
 
     this.relays = relays && relays.length > 0 ? normalizeRelays(relays) : normalizeRelays(DEFAULT_RELAYS)
 
-    this.announcements = new Map(announcements.map((announcement) => [announcement.id, announcement]))
+    this.announcements = new Map(
+      announcements
+        .map(normalizeCachedAnnouncementRecord)
+        .filter((announcement): announcement is AnnouncementRecord => Boolean(announcement))
+        .map((announcement) => [announcement.id, announcement]),
+    )
     this.rebuildNodesAndIndex()
 
     this.setState({

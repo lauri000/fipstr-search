@@ -26,6 +26,12 @@ const results: DirectorySearchResult[] = [
     url: "http://npub1alpharelaysample0000000000000000000000000000000000000000000.fips/",
     score: 10,
     announcementCount: 3,
+    overlayEndpoints: "",
+    overlayRelays: "",
+    capabilities: "announcement",
+    protocol: "",
+    canReannounce: true,
+    badges: ["announcement"],
     announcedByViewer: true,
   },
 ]
@@ -79,11 +85,11 @@ describe("App", () => {
     window.history.replaceState({}, "", "/")
   })
 
-  it("opens settings and saves relay updates through the service", () => {
+  it("opens settings and saves relay updates through the service", async () => {
     const updateRelays = vi.fn(async () => undefined)
     render(<App auth={makeAuth()} service={makeService(updateRelays)} />)
 
-    fireEvent.click(screen.getByRole("button", {name: "Open settings"}))
+    fireEvent.click(await screen.findByRole("button", {name: "Open settings"}))
     fireEvent.change(screen.getByLabelText(/relay list/i), {
       target: {value: "wss://relay.one/\nwss://relay.two/"},
     })
@@ -92,10 +98,10 @@ describe("App", () => {
     expect(updateRelays).toHaveBeenCalledWith(["wss://relay.one/", "wss://relay.two/"])
   })
 
-  it("shows grouped results with score, viewer state, and an explicit http npub.fips link", () => {
+  it("shows grouped results with score, viewer state, and an explicit http npub.fips link", async () => {
     render(<App auth={makeAuth()} service={makeService()} />)
 
-    fireEvent.change(screen.getByRole("searchbox", {name: /search fips discovery announcements/i}), {
+    fireEvent.change(await screen.findByRole("searchbox", {name: /search fips discovery announcements/i}), {
       target: {value: "alpha"},
     })
 
@@ -110,12 +116,12 @@ describe("App", () => {
     expect(screen.getByRole("button", {name: "Announce again"})).toBeInTheDocument()
   })
 
-  it("hydrates the search box from the q query param and keeps the URL in sync", () => {
+  it("hydrates the search box from the q query param and keeps the URL in sync", async () => {
     window.history.replaceState({}, "", "/?q=alpha")
 
     render(<App auth={makeAuth()} service={makeService()} />)
 
-    const input = screen.getByRole("searchbox", {name: /search fips discovery announcements/i})
+    const input = await screen.findByRole("searchbox", {name: /search fips discovery announcements/i})
 
     expect(input).toHaveValue("alpha")
     expect(screen.getByText("Alpha Relay")).toBeInTheDocument()
@@ -127,10 +133,10 @@ describe("App", () => {
     expect(window.location.search).toBe("?q=beta+relay")
   })
 
-  it("updates the search query when browser history changes", () => {
+  it("updates the search query when browser history changes", async () => {
     render(<App auth={makeAuth()} service={makeService()} />)
 
-    const input = screen.getByRole("searchbox", {name: /search fips discovery announcements/i})
+    const input = await screen.findByRole("searchbox", {name: /search fips discovery announcements/i})
 
     window.history.replaceState({}, "", "/?q=alpha")
     fireEvent.popState(window)
@@ -138,7 +144,7 @@ describe("App", () => {
     expect(input).toHaveValue("alpha")
   })
 
-  it("prompts logged-out users to connect before announcing", () => {
+  it("prompts logged-out users to connect before announcing", async () => {
     render(
       <App
         auth={makeAuth({
@@ -151,11 +157,48 @@ describe("App", () => {
       />,
     )
 
-    fireEvent.change(screen.getByRole("searchbox", {name: /search fips discovery announcements/i}), {
+    fireEvent.change(await screen.findByRole("searchbox", {name: /search fips discovery announcements/i}), {
       target: {value: "alpha"},
     })
     fireEvent.click(screen.getByRole("button", {name: "Connect to announce"}))
 
     expect(screen.getByText("Connect your browser extension before re-announcing a node.")).toBeInTheDocument()
+  })
+
+  it("shows overlay-only results with metadata badges and no re-announce action", async () => {
+    const overlayResult: DirectorySearchResult = {
+      id: "npub1overlaynode000000000000000000000000000000000000000000000000",
+      title: "npub1overlaynode000000000000000000000000000000000000000000000000",
+      alias: "",
+      summary: "Overlay endpoints: UDP 203.0.113.45:2121 · UDP NAT · Tor relayexample.onion:8443",
+      services: "",
+      transports: "",
+      npub: "npub1overlaynode000000000000000000000000000000000000000000000000",
+      host: "npub1overlaynode000000000000000000000000000000000000000000000000.fips",
+      url: "http://npub1overlaynode000000000000000000000000000000000000000000000000.fips/",
+      score: 8,
+      announcementCount: 0,
+      overlayEndpoints: "UDP 203.0.113.45:2121 · UDP NAT · Tor relayexample.onion:8443",
+      overlayRelays: "wss://relay.damus.io stun:stun.l.google.com:19302",
+      capabilities: "self-advert udp tor nat stun",
+      protocol: "fips-overlay-v1 version 1",
+      canReannounce: false,
+      badges: ["self-advert", "udp", "tor", "nat", "stun"],
+      announcedByViewer: false,
+    }
+    const service = makeService()
+    service.search = (query) => (query ? [overlayResult] : [])
+
+    render(<App auth={makeAuth()} service={service} />)
+
+    fireEvent.change(await screen.findByRole("searchbox", {name: /search fips discovery announcements/i}), {
+      target: {value: "nat"},
+    })
+
+    expect(screen.getAllByText("self-advert").length).toBeGreaterThan(0)
+    expect(screen.getByText("udp")).toBeInTheDocument()
+    expect(screen.getByText("nat")).toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Re-announce"})).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", {name: "Announce again"})).not.toBeInTheDocument()
   })
 })

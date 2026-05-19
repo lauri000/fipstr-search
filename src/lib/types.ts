@@ -2,6 +2,8 @@ import type {Event} from "nostr-tools"
 
 export const DISCOVERY_KIND = 37_195
 
+export type DirectoryRecordSource = "announcement" | "overlay"
+
 export type DiscoveryTransport = {
   protocol: string
   addr: string
@@ -13,8 +15,23 @@ export type DiscoveryService = {
   port: string
 }
 
+export type OverlayEndpoint = {
+  transport: string
+  addr: string
+}
+
+export type OverlayAdvertRecord = {
+  protocol: string
+  version: string
+  endpoints: OverlayEndpoint[]
+  signalRelays: string[]
+  stunServers: string[]
+  expiresAt?: number
+}
+
 export type AnnouncementRecord = {
   id: string
+  source: DirectoryRecordSource
   authorPubkey: string
   authorNpub: string
   targetNpub: string
@@ -28,6 +45,7 @@ export type AnnouncementRecord = {
   services: DiscoveryService[]
   tags: string[][]
   url: string
+  overlay?: OverlayAdvertRecord
 }
 
 export type DirectoryNodeRecord = {
@@ -44,6 +62,11 @@ export type DirectoryNodeRecord = {
   canonicalAnnouncementId: string
   canonicalEventId: string
   canonicalAuthorPubkey: string
+  hasAnnouncement: boolean
+  hasOverlayAdvert: boolean
+  canReannounce: boolean
+  badges: string[]
+  overlay?: OverlayAdvertRecord
 }
 
 export type SearchDocument = {
@@ -57,6 +80,12 @@ export type SearchDocument = {
   host: string
   url: string
   announcementCount: number
+  overlayEndpoints: string
+  overlayRelays: string
+  capabilities: string
+  protocol: string
+  canReannounce: boolean
+  badges: string[]
 }
 
 export type DirectorySearchResult = SearchDocument & {

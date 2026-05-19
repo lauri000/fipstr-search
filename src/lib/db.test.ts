@@ -9,6 +9,7 @@ function announcement(overrides: Partial<AnnouncementRecord> = {}): Announcement
 
   return {
     id: overrides.id ?? `${authorPubkey}:${targetNpub}`,
+    source: overrides.source ?? "announcement",
     authorPubkey,
     authorNpub: overrides.authorNpub ?? "npub1announcer0000000000000000000000000000000000000000000000000",
     targetNpub,
