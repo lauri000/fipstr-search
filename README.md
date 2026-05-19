@@ -46,21 +46,7 @@ The app keeps the latest valid announcement per `(author pubkey, target npub)` p
 
 ### FIPS overlay adverts
 
-Machine-authored FIPS daemon adverts use the event author as the node identity, `["d", "fips-overlay-v1"]`, and JSON content shaped like:
-
-```json
-{
-  "identifier": "fips-overlay-v1",
-  "version": 1,
-  "endpoints": [
-    {"transport": "udp", "addr": "203.0.113.45:2121"},
-    {"transport": "udp", "addr": "nat"},
-    {"transport": "tor", "addr": "relayexample.onion:8443"}
-  ],
-  "signalRelays": ["wss://relay.damus.io"],
-  "stunServers": ["stun:stun.l.google.com:19302"]
-}
-```
+Machine-authored FIPS daemon adverts use the event author as the node identity and follow the upstream FIPS overlay-advert schema documented in [jmcorgan/fips docs/reference/nostr-events.md](https://github.com/jmcorgan/fips/blob/master/docs/reference/nostr-events.md#kind-37195--overlay-advert).
 
 Overlay adverts are searchable by npub, endpoint, transport, `nat`, `stun`, `tor`, relay URL, and protocol metadata. They are displayed as self-adverts and are not re-announced with browser keys.
 
